@@ -72,20 +72,24 @@ When a bug is "only happens on first load" or "only before X is called":
 ### Pattern E — Switch/enum controlling visibility or behavior
 When you find a `switch` (or `if/else if` chain) that maps an enum or product type to a boolean or behavior:
 - **Enumerate ALL cases** — both the true branch and the false branch
-- Do not only report the cases mentioned in the question; list every case in the switch
+- Do not only report the cases mentioned in the question; list every case in the switch, grouped by outcome
 - Example: if asked "why is field X hidden for CashFlow", do not only say "CashFlow → hidden". List EVERY product type and whether it shows or hides the field:
-  - `Equity, FixedIncome, Derivative → bShow = true`
-  - `FX, CashFlow, Repo → bShow = false`
+  - `Equity, FixedIncome, Derivative, Swap, Forward, Option, Future → bShow = true`
+  - `FX, CashFlow, Repo, SecLoan → bShow = false`
   - `default → bShow = true`
-- Flag in Suspicious items if the user's premise contradicts what you found in the code
+- **This applies even if the user's premise turns out to be wrong** — enumerate the full switch so the abstractor can compare the code against the reported symptom
+- Flag in Suspicious items if the user's premise contradicts what you found in the code (e.g. "user says FX is visible but code sets bShowNotional=false for FX")
 
 ### Pattern F — Wrong argument passed to a function
 When a function call passes a variable and the bug might be "wrong argument":
-- Read the callee function signature — what type/meaning does it expect for each parameter?
-- Read the caller — what variable is actually passed?
-- Compare: is the passed variable the same concept the callee expects, or a different (but similarly named) identifier?
-- Common pattern: passing `m_strReservationId` where the callee does a lookup by `m_strTradeId`
-- Report: "callee expects [meaning], caller passes [actual variable name] which holds [meaning]"
+1. Read the caller function in full — find the exact call site and what variable is passed
+2. **Grep for the callee function name** — find its actual `.cpp` file (do not guess the filename)
+3. Read the callee function body — what is the parameter used for? What map/lookup key does it use?
+4. Compare: is the passed variable the same concept the callee expects, or a different (but similarly named) identifier?
+5. Common pattern: passing `m_strReservationId` where the callee does a lookup by `m_strTradeId`
+6. Report: "caller passes [exact variable name] at [file:line], callee [exact class::function] at [file:line] uses it as [lookup key meaning]"
+
+**You MUST grep for and read the callee file** — never assume its filename or content from the caller alone.
 
 ## Output format
 
