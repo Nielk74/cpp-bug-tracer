@@ -345,6 +345,23 @@
         "The report includes a suggested fix: change ReadPosition key to strCptyCode + '|' + strTradeId"
       ],
       "weakness_targeted": "true cross-file key format mismatch with no call chain between the two files. Writer and reader have NO direct dependency — the bug is ONLY visible by reading both independently and comparing key construction. Single-agent anchoring on one file cannot see the mismatch without also reading the other."
+    },
+    {
+      "id": 23,
+      "prompt": "Every trade is being rejected with a fee policy violation error even though our fee schedule is configured at 50 basis points for vanilla equity trades, which is well below our stated maximum of 1%. The fee schedule and fee validation are two separate components introduced last sprint. Codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent identifies that CTradeFeeSchedule::SetFee stores fee values in basis points (e.g., 50.0 for 50 bps) while CTradeFeeValidator::IsFeeWithinPolicy compares that stored value directly against a percentage threshold (e.g., 1.0 for 1%). Since 50.0 > 1.0 numerically, every fee is rejected. The two services share CTradeFeeStore but use incompatible units. Fix: convert the fee to percent before comparison (dFee / 100.0 <= dMaxFeePercent) or store in percent in SetFee.",
+      "files": [
+        "src/services/CTradeFeeSchedule.cpp",
+        "src/services/CTradeFeeValidator.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeFeeValidator::IsFeeWithinPolicy as the location of the comparison bug",
+        "The report identifies that CTradeFeeSchedule::SetFee stores the fee in basis points (50.0 for 50 bps)",
+        "The report identifies that CTradeFeeValidator compares the basis-points value directly against a percentage threshold",
+        "The report explains that 50 (bps) > 1.0 (percent) numerically, causing every fee to be rejected",
+        "The report suggests a fix involving unit conversion (divide bps by 100 before comparing, or store as percent)"
+      ],
+      "weakness_targeted": "units mismatch between two independent services sharing a store. CTradeFeeSchedule stores in basis points; CTradeFeeValidator reads and compares against percentage. No call chain between them — each service looks internally consistent. Single-agent anchors on the validation path and sees correct comparison logic without context of the fee units. Multi-agent: Thread A reads the schedule (basis points), Thread B reads the validator (percent) — abstractor sees the 100x unit mismatch."
     }
   ]
 }
