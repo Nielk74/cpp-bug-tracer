@@ -328,6 +328,23 @@
         "The report includes a suggested fix involving adjusting one side by 1 before comparing"
       ],
       "weakness_targeted": "cross-file indexing mismatch: CTradeApprovalLevelConfig uses 1-based levels; CTradeApprovalGate uses 0-based. Each service looks internally correct. The bug is only visible when comparing how each service defines 'level N'. Requires reading both files simultaneously."
+    },
+    {
+      "id": 22,
+      "prompt": "Our position caching layer always returns 'not found' for every ReadPosition call even though WritePosition is confirmed to be called first with the correct trade ID and counterparty code. The two services share the same CTradePositionStore instance. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradePositionWriter::WritePosition and CTradePositionReader::ReadPosition. WritePosition builds key as strCptyCode + '|' + strTradeId (e.g. 'CPTY_001|TRADE-0042'). ReadPosition builds key as strTradeId + '|' + strCptyCode (e.g. 'TRADE-0042|CPTY_001') — reversed order. Both services use CTradePositionStore::Set/Get but with incompatible keys. There is no call from reader to writer. Fix: change ReadPosition to use strCptyCode + '|' + strTradeId.",
+      "files": [
+        "src/services/CTradePositionReader.cpp",
+        "src/services/CTradePositionWriter.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradePositionReader::ReadPosition as the location of the bug",
+        "The report identifies that CTradePositionWriter::WritePosition stores keys as strCptyCode + '|' + strTradeId",
+        "The report identifies that CTradePositionReader::ReadPosition looks up keys as strTradeId + '|' + strCptyCode",
+        "The report explains that the reversed key order means the reader never finds what the writer stored",
+        "The report includes a suggested fix: change ReadPosition key to strCptyCode + '|' + strTradeId"
+      ],
+      "weakness_targeted": "true cross-file key format mismatch with no call chain between the two files. Writer and reader have NO direct dependency — the bug is ONLY visible by reading both independently and comparing key construction. Single-agent anchoring on one file cannot see the mismatch without also reading the other."
     }
   ]
 }
