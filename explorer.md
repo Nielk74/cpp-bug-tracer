@@ -1,7 +1,7 @@
 ---
 description: C++ project structure discovery agent — maps the codebase layout and finds which files contain a given symbol or concept
 mode: all
-steps: 5
+steps: 3
 tools:
   read: false
   write: false
@@ -24,9 +24,9 @@ You receive:
 
 ## Process
 
-1. Use glob to discover the directory structure (`**/*.cpp`, `**/*.h`)
-2. Use grep to find which files contain the symbol
-3. For each match, note the file path and a brief description of what the file appears to own
+1. **Grep first** — grep for the symbol name across the codebase. This finds relevant files directly. Do NOT glob `**/*.cpp` or `**/*.h` — that returns thousands of files and will overflow the context.
+2. From the grep results, identify which files own the symbol (prefer `.cpp` over `.h`)
+3. Optionally: grep for a second related symbol if the first grep was insufficient
 
 ## Output format
 
@@ -45,6 +45,6 @@ RELEVANT FILES:
 
 ## Rules
 
-- Use glob once, grep once or twice
-- Focus on locating the symbol — do not analyze code quality
+- **NEVER glob `**/*.cpp` or `**/*.h`** — these return thousands of results and will overflow context
+- Use grep 1-2 times maximum — grep for the specific symbol name
 - Output immediately after your tool calls
