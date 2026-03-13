@@ -34,10 +34,10 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | | **Score (12–15)** | **3/4** | **4/4** | **4/4** |
 | | **Total score** | **13/15** | **12/15** | **14/15** |
 | | | | | |
-| 16 | Exposure release reads unpopulated map | ❌ FAIL⁶ | ✅ PASS | — |
-| 17 | P&L key: counterparty code vs product type | ❌ FAIL⁶ | ✅ PASS | — |
-| 18 | Sanctions: name vs code lookup | ❌ FAIL⁶ | ✅ PASS | — |
-| 19 | Audit: operation ID written to trade ID field | ❌ FAIL⁶ | ✅ PASS | — |
+| 16 | Exposure release reads unpopulated map | ✅ PASS | ✅ PASS | — |
+| 17 | P&L key: counterparty code vs product type | ✅ PASS | ✅ PASS | — |
+| 18 | Sanctions: name vs code lookup | ✅ PASS | ✅ PASS | — |
+| 19 | Audit: operation ID written to trade ID field | ✅ PASS | ✅ PASS | — |
 | 20 | Rate limit: per-hour config vs per-minute window | ✅ PASS¹⁰ | ✅ PASS | — |
 | 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — |
 | 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — |
@@ -53,7 +53,7 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁴ **Eval 12 multi-agent partial**: Orchestrator wastes steps attempting `cpp-bug-tracer/agents/worker-agent` (non-existent). Abstractor report mentions validation-before-update but hallucinated `TradeValidator.cpp` — never traces `m_mapTradeStore` or the local copy issue. 2/5 assertions pass.
 
-⁶ **Evals 16–19 multi-agent fail (single-file bugs)**: These evals have both functions in the same .cpp file. Single-agent reads the file and immediately finds the bug. Multi-agent sends generic grep prompts, investigators fail to find the new service files by name, abstractor hallucinates file names. Revealed that single-file bugs do NOT showcase multi-agent advantage.
+⁶ **Evals 16–19 original multi-agent fail**: Root cause was abstractor `task:false` — investigators never ran, pure hallucination. After architectural fix (task:true), all 4 now PASS. The "single-file bug" classification was a red herring: Thread A reads the whole file and sees both sides of the bug; Thread B's failure to find a second class is irrelevant when Thread A already has the full answer.
 
 ⁷ **Evals 20–21 original multi-agent fail (task:false)**: Abstractor had task:false — investigators never ran, pure hallucination.
 
@@ -78,8 +78,8 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 - **Pattern E** in investigator: use glob `**/<ClassName>.cpp` to find implementation files directly instead of grepping (which hits .h headers first).
 
 ### When single-agent wins
-- **Single-file bugs** (evals 16–19): both functions are in the same .cpp. Single-agent reads the file once and finds the bug instantly. Multi-agent sends generic grep prompts, investigators struggle to find new service files by name, abstractor hallucinates.
 - **Step efficiency**: multi-agent's orchestrator→abstractor→investigator chain costs 3–5× more steps; for trivial bugs this overhead dominates.
+- **Unclear classification**: if the orchestrator misclassifies the bug type, thread prompts point investigators to wrong entry points. Single-agent just follows symbols from the prompt directly.
 
 ### GLM-5 vs qwen3 single-agent
 | | GLM-5 | qwen3 |
