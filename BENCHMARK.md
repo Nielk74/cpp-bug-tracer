@@ -38,9 +38,10 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 17 | P&L key: counterparty code vs product type | ❌ FAIL⁶ | ✅ PASS | — |
 | 18 | Sanctions: name vs code lookup | ❌ FAIL⁶ | ✅ PASS | — |
 | 19 | Audit: operation ID written to trade ID field | ❌ FAIL⁶ | ✅ PASS | — |
-| 20 | Rate limit: per-hour config vs per-minute window | ❌ FAIL⁷ | ✅ PASS | — |
-| 21 | Approval level: 1-based config vs 0-based gate | ❌ FAIL⁷ | ✅ PASS | — |
-| 22 | Position store: reversed key order (writer vs reader) | ❌ FAIL⁸ | ✅ PASS | — |
+| 20 | Rate limit: per-hour config vs per-minute window | ❌ FAIL¹⁰ | ✅ PASS | — |
+| 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — |
+| 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — |
+| 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | 🔄 TBD | — |
 
 ### Notes
 
@@ -54,9 +55,15 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁶ **Evals 16–19 multi-agent fail (single-file bugs)**: These evals have both functions in the same .cpp file. Single-agent reads the file and immediately finds the bug. Multi-agent sends generic grep prompts, investigators fail to find the new service files by name, abstractor hallucinates file names. Revealed that single-file bugs do NOT showcase multi-agent advantage.
 
-⁷ **Evals 20–21 multi-agent fail (cross-file with call chain)**: Even though bugs span two .cpp files, there is a direct call chain (IsRateLimited → GetRateLimit, CanApprove → GetRequiredLevel). Single-agent follows the call chain naturally and reads both files. Multi-agent still hallucinated — investigators failed to discover the new service files. Investigator fix (Pattern E: glob by class name) not yet applied at time of test.
+⁷ **Evals 20–21 original multi-agent fail (task:false)**: Abstractor had task:false — investigators never ran, pure hallucination.
 
-⁸ **Eval 22 multi-agent fail (true cross-file, no call chain)**: CTradePositionWriter and CTradePositionReader both access CTradePositionStore independently. Multi-agent report cited "CTradePositionStore.cpp lines 45/67" — wrong file, hallucinated. Investigators sent generic grep terms, missed the actual writer/reader files. Investigator Pattern E fix (glob `**/<ClassName>.cpp`) added to address this.
+¹⁰ **Eval 20 multi-agent fail (after abstractor fix)**: Investigators ran and read real files, but followed the wrong thread — anchored on CTradeServiceFacade→CTradeLifecycleService call chain instead of going directly to CTradeRateLimiter/CTradeRateLimitConfig. The orchestrator classified as event/notification instead of counter/metric. Correct diagnosis requires investigators to start from the rate limiter class directly.
+
+¹¹ **Eval 21 multi-agent partial (after abstractor fix)**: Investigators ran and found CTradeApprovalGate.cpp:63 and CTradeApprovalLevelConfig. Correctly identified 0-based vs 1-based mismatch and right fix direction. Gaps: CTradeApprovalLevelConfig line is "XX" (investigators hit step limit before fully reading the file). Example explanation in report slightly off, but core diagnosis correct.
+
+⁸ **Eval 22 original multi-agent fail**: Report cited "CTradePositionStore.cpp lines 45/67" — hallucinated. Root cause: abstractor had `task: false` so investigators were never run. Fixed by enabling task: true in abstractor.
+
+⁹ **Eval 22 multi-agent PASS (after abstractor fix)**: Investigators actually ran and read both CTradePositionWriter.cpp and CTradePositionReader.cpp. Report correctly identifies CTradePositionReader.cpp:52 as the bug location and the exact reversed key format. All 5 assertions pass.
 
 ⁵ **Eval 13 multi-agent (after fix)**: Previously failed — abstractor hallucinated `CTradeEventDispatcher.cpp` due to step budget exhausted by worker-agent failures. Fixed by rewriting orchestrator: `grep: false`, `steps: 6`, first action hardcoded to abstractor. Re-run now correctly identifies `NotifyTradeExecuted` before `ExecuteTrade` at line 817.
 
@@ -67,7 +74,8 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 ### When multi-agent wins
 - **True cross-file bugs** (eval 9): two parallel threads read different service files simultaneously. Each file looks correct in isolation; only by comparing thread outputs does the mismatch appear.
 - **Avoids anchoring**: qwen3 single-agent anchors on the first file it reads. On a cross-file bug it may declare the first file correct and stop, never reading the second.
-- **Prerequisite**: investigators must be able to discover files by class name. Pattern E (glob `**/<ClassName>.cpp`) is necessary — without it, investigators grep for symbols and may hit header files first, leading to hallucination.
+- **Prerequisite**: abstractor must have `task: true` to actually spawn investigators. Previously `task: false` meant the abstractor only reasoned from the prompt and hallucinated file names — no files were ever read.
+- **Pattern E** in investigator: use glob `**/<ClassName>.cpp` to find implementation files directly instead of grepping (which hits .h headers first).
 
 ### When single-agent wins
 - **Single-file bugs** (evals 16–19): both functions are in the same .cpp. Single-agent reads the file once and finds the bug instantly. Multi-agent sends generic grep prompts, investigators struggle to find new service files by name, abstractor hallucinates.
@@ -84,14 +92,16 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 **Summary**: GLM-5 is stronger at multi-file tracing and produces more precise fix directions. qwen3 is faster and less prone to rabbit holes on simple cases. Multi-agent (qwen3) covers the gap on cross-layer bugs by parallelizing.
 
-### Complex evals reveal multi-agent weakness
-The 4 new complex evals (12–15) expose a structural problem: the orchestrator still attempts the non-existent `worker-agent` before falling back to the abstractor, consuming a large portion of the step budget. On evals 12 and 13, the abstractor received a degraded investigation due to step starvation and produced hallucinated output. Both single-agent configs scored 4/4 on the same evals — demonstrating that for focused, single-file bugs the overhead of orchestration is a net negative.
+### Architectural bug (now fixed): investigators were never run
+The abstractor had `task: false` — it could NEVER spawn investigators. It only reasoned from the orchestrator prompt and hallucinated file names. The "parallel investigator threads" were fictional. Evals 1-11 passed because the model could reason correctly about common C++ patterns without reading files. Evals 16-22 failed because new files were unknown to the model.
 
-| Weakness | Multi-agent | Single-agent-qwen3 | Single-agent-glm5 |
-|----------|-------------|-------------------|------------------|
-| Worker-agent step waste | ❌ Still occurs | N/A | N/A |
-| Hallucination under step pressure | ❌ Evals 12, 13 | ✅ None | ✅ None |
-| Cross-layer / multi-file bugs | ✅ Parallelism helps (eval 9) | ❌ Anchors wrong | ✅ Strong tracer |
+Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns both investigators in parallel and waits for real file:line evidence before synthesizing.
+
+| Weakness | Multi-agent (before fix) | Multi-agent (after fix) | Single-agent |
+|----------|--------------------------|------------------------|--------------|
+| task:false — investigators never ran | ❌ All evals hallucinated | ✅ Fixed | N/A |
+| Worker-agent step waste (evals 12-13) | ❌ Occurred | ✅ Fixed (orchestrator rewrite) | N/A |
+| Cross-layer / multi-file bugs | ✅ Parallelism helps (eval 9, 22) | ✅ Still works | ❌ Anchors wrong |
 
 ### Latency
 | Config | Typical time |
