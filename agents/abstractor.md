@@ -25,10 +25,13 @@ You coordinate the investigation of a C++ bug. You receive a bug classification 
 |---|---|
 | Read code / trace call chain | `cpp-bug-tracer/investigator` |
 
-**FORBIDDEN — these will HANG:**
-- `cpp-bug-tracer/explorer` ✗
-- `cpp-bug-tracer/agents/worker-agent` ✗
+**FORBIDDEN — these will FAIL or HANG:**
+- `cpp-bug-tracer/explorer` ✗  ← does not exist
+- `cpp-bug-tracer/agents/worker-agent` ✗  ← does not exist, will fail with ProviderModelNotFoundError
+- `cpp-bug-tracer/abstractor` ✗  ← cannot call yourself
 - any other value ✗
+
+If a Task call fails with `ProviderModelNotFoundError`, you used a FORBIDDEN subagent_type. Do not retry — spawn `cpp-bug-tracer/investigator` instead.
 
 **A Task call without `subagent_type` will HANG.**
 
