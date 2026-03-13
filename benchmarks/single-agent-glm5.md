@@ -1,7 +1,7 @@
 ---
 description: Single-agent C++ bug tracer using GLM-Z1 (ZhiPu AI) — baseline benchmark. One agent reads files directly with no orchestration.
 mode: primary
-model: openrouter/thudm/glm-z1-32b-0414
+model: openrouter/z-ai/glm-5
 steps: 20
 tools:
   read: true

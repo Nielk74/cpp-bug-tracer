@@ -6,7 +6,7 @@ Comparing three configurations on the same 11 C++ bug evals:
 |--------|-------------|-------|
 | **multi-agent** | orchestrator → abstractor → investigator ×2 | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
 | **single-agent-qwen3** | one agent, reads files directly | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
-| **single-agent-glm5** | one agent, reads files directly | thudm/glm-z1-32b-0414 (OpenRouter) |
+| **single-agent-glm5** | one agent, reads files directly | z-ai/glm-5 (OpenRouter) |
 
 ---
 
@@ -22,10 +22,10 @@ Comparing three configurations on the same 11 C++ bug evals:
 | 6 | Trade-validated notification never fires | ✅ PASS | — | — |
 | 7 | Settlement triggers wrong handler | ✅ PASS | — | — |
 | 8 | Counter double-incremented | ✅ PASS | — | — |
-| 9 | Double settlement (cross-layer state) | ✅ PASS | ❌ FAIL² | — |
-| 10 | Credit limit `Success(false)` misuse | ✅ PASS | ✅ PASS | — |
+| 9 | Double settlement (cross-layer state) | ✅ PASS | ❌ FAIL² | ✅ PASS |
+| 10 | Credit limit `Success(false)` misuse | ✅ PASS | ✅ PASS | ✅ PASS |
 | 11 | Wrong argument to credit release | ✅ PASS | ✅ PASS | — |
-| | **Score** | **10/11** | **~4/6 tested** | — |
+| | **Score** | **10/11** | **~4/6 tested** | **3/3 tested** |
 
 > `—` = not yet benchmarked
 
@@ -47,6 +47,12 @@ Comparing three configurations on the same 11 C++ bug evals:
 ### When single-agent is comparable
 - **Self-contained bugs** (evals 10, 11): bug fits in 1-2 files, single-agent finds it as well as multi-agent
 - **Counter bugs** (eval 8): grep for the variable name surfaces both increment sites immediately
+
+### GLM-5 observations (single-agent)
+- **Eval 9 (cross-layer)**: GLM-5 passed where qwen3 single-agent failed. It found the lifecycle service state mismatch and even read the `// BUG` comment in the code.
+- **Eval 10 (ServiceResult misuse)**: Read `ServiceCommon.h` to confirm `IsFailure()` semantics — more thorough than qwen3 single-agent.
+- GLM-5 produced **more precise fix directions** (exact code snippets with correct function signatures).
+- Needs more evals to draw conclusions, but initial results suggest GLM-5 is stronger at cross-layer state reasoning in single-agent mode.
 
 ### Latency
 | Config | Typical time |
