@@ -425,7 +425,12 @@ ServiceResult<SFullTradeContext> CTradeServiceFacade::SettleAndNotify(
     }
     
     context.m_eCurrentState = TradeLifecycleState::Settled;
-    
+
+    // BUG: m_pLifecycleService->RecordTradeSettled() was removed during refactor — lifecycle
+    // service never transitions this trade to Settled, so GetTradeState still returns Executed.
+    // CSettlementService::IsTradeSettleable reads from m_pTradeLifecycleService->GetTradeState,
+    // which will keep returning Executed — allowing ScheduleSettlement to pass validation again.
+
     if (m_pNotificationService != NULL) {
         std::stringstream ss;
         ss << "Settlement amount: " << processResult.GetValue().m_dNetAmount;

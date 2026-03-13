@@ -127,7 +127,7 @@
         "The report explains that CTradeLifecycleService::GetTradeState still returns Executed because the lifecycle state was never updated to Settled",
         "The report includes a suggested fix involving calling the lifecycle service to record the Settled state transition after settlement succeeds"
       ],
-      "weakness_targeted": "cross-layer state — facade updates its own context but does not propagate the state change to the lifecycle service; requires tracing 5 hops across 3 files"
+      "weakness_targeted": "cross-layer state — facade updates its own context but does not propagate the state change to the lifecycle service; requires tracing 5 hops across 3 files. NOTE: qwen3-coder:30b consistently fails this eval, finding surface-level 'missing duplicate check' explanations instead of the root cause. The BUG comment in CTradeServiceFacade.cpp:SettleAndNotify helps but is insufficient. This is a documented model capability ceiling for cross-layer state synthesis."
     },
     {
       "id": 10,
