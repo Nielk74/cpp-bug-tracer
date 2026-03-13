@@ -51,6 +51,7 @@ Read the bug description and classify it into one of these categories:
 | **Conditional behavior** | "only happens for product X", "works for Y but not Z", "only on first load" |
 | **Cross-layer state** | "UI field wrong", "form shows unexpected value", "field disabled unexpectedly" |
 | **Operation should fail but doesn't** | "can do X twice", "should be rejected but isn't", "second call succeeds when it shouldn't" |
+| **Wrong argument / ID mix-up** | "credit not released", "reservation not found after cancel", "lookup always fails", "passed wrong ID" |
 
 **For counter/metric bugs only**: grep for the counter variable name yourself before delegating:
 ```
@@ -87,6 +88,10 @@ For **ID/key lookup** bugs:
 For **operation should fail but doesn't** bugs:
 - Thread A: "Trace the validation path before `<operation>` is allowed. Follow: `<OperationFunction>` → what guard/IsXAllowed call is made → read that guard → what state does it check → which class owns that state. Starting point: `<ServiceClass>::<OperationFunction>`. Codebase: `<path>`"
 - Thread B: "Read `<MainFunction>` that performs a successful `<operation>`. After success, list every service method called. Does it update a local struct or a service that persists state? Look for `context.m_eCurrentState = X` — does context get written back to a service? Starting point: `<MainFunctionClass>::<MainFunction>`. Codebase: `<path>`"
+
+For **wrong argument / ID mix-up** bugs:
+- Thread A: "Read `<ReleaseFunction>` in `<CallerClass>`. What variable is passed as the argument to `<CalleeFunction>`? What is that variable's meaning — is it a trade ID, reservation ID, or something else? Starting point: `<CallerClass>::<ReleaseFunction>`. Codebase: `<path>`"
+- Thread B: "Read `<CalleeFunction>` in `<CalleeClass>`. What argument does it expect — what type/meaning? What map or lookup does it use? What key does it look for? Starting point: `<CalleeClass>::<CalleeFunction>`. Codebase: `<path>`"
 
 For **conditional** or **cross-layer** bugs:
 - Thread A: "Find the branch that handles `<product/condition X>`. Read the condition and what state is read. Starting point: `<RelevantClass>`. Codebase: `<path>`"

@@ -69,6 +69,24 @@ When a bug is "only happens on first load" or "only before X is called":
 - Find where it's supposed to be set (the setter call)
 - Confirm whether the setter is actually called before the code that reads it
 
+### Pattern E — Switch/enum controlling visibility or behavior
+When you find a `switch` (or `if/else if` chain) that maps an enum or product type to a boolean or behavior:
+- **Enumerate ALL cases** — both the true branch and the false branch
+- Do not only report the cases mentioned in the question; list every case in the switch
+- Example: if asked "why is field X hidden for CashFlow", do not only say "CashFlow → hidden". List EVERY product type and whether it shows or hides the field:
+  - `Equity, FixedIncome, Derivative → bShow = true`
+  - `FX, CashFlow, Repo → bShow = false`
+  - `default → bShow = true`
+- Flag in Suspicious items if the user's premise contradicts what you found in the code
+
+### Pattern F — Wrong argument passed to a function
+When a function call passes a variable and the bug might be "wrong argument":
+- Read the callee function signature — what type/meaning does it expect for each parameter?
+- Read the caller — what variable is actually passed?
+- Compare: is the passed variable the same concept the callee expects, or a different (but similarly named) identifier?
+- Common pattern: passing `m_strReservationId` where the callee does a lookup by `m_strTradeId`
+- Report: "callee expects [meaning], caller passes [actual variable name] which holds [meaning]"
+
 ## Output format
 
 ```
@@ -100,6 +118,7 @@ When a bug is "only happens on first load" or "only before X is called":
 ## Constraints
 
 - Always read files — do not answer from grep output alone
+- **Copy class names, function names, and variable names verbatim from the code you read.** Never abbreviate or invent names. `CTradeLifecycleService::ReleaseCreditForTrade` is not the same as `TradeService::CancelTrade`. If unsure of a name, grep for it.
 - Report exact file:line for every finding — quote the key line when it's short (under 80 chars)
 - If you cannot find the answer after 4 greps and 5 reads, report what you found and where you got stuck
 - Do not spawn subagents

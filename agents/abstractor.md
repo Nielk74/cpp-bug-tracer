@@ -63,6 +63,12 @@ Once both investigators return, synthesize their findings:
 4. **Assess confidence**: HIGH if both threads confirm the same cause, MEDIUM if one thread has gaps, LOW if speculative
 5. **Identify gaps**: anything still unconfirmed
 
+### For "wrong argument / ID mix-up" bugs
+Before synthesizing, explicitly write:
+- "Thread A: the caller passes → [exact variable name and its meaning]"
+- "Thread B: the callee expects → [exact parameter meaning and lookup key]"
+- If DIFFERENT → that is the bug
+
 ### For "should fail but doesn't" bugs
 Before synthesizing, explicitly write:
 - "Thread A: the guard reads state from → [exact class + field]"
