@@ -4,6 +4,7 @@
 #pragma warning(disable:4512)
 
 #include <string>
+#include <vector>
 #include <memory>
 #include "ServiceCommon.h"
 #include "CCounterpartyService.h"
@@ -97,6 +98,11 @@ public:
         const std::string& strTradeId,
         const std::string& strReason);
     
+    // Execute a batch of approved trades. Returns IDs of trades that failed.
+    // See CTradeServiceFacade.cpp for the ordering bug (notify before execute).
+    std::vector<std::string> BatchExecuteTrades(
+        const std::vector<std::string>& vecTradeIds);
+
     ServiceResult<SFullTradeContext> GetTradeContext(
         const std::string& strTradeId);
     

@@ -163,6 +163,73 @@
         "The report includes a suggested fix: pass refData.m_strTradeId to ReleaseCreditReservation"
       ],
       "weakness_targeted": "wrong-argument bug — a meaningful variable (reservation ID) is passed where a different meaningful variable (trade ID) is expected; requires tracing through the credit service's data structures across 4 hops"
+    },
+    {
+      "id": 12,
+      "prompt": "When we amend a trade's notional amount from zero to a valid value, the amendment service still returns a 'validation failed' error as if the notional is still zero. The amendment appears to succeed (no error from the amendment call) but validation immediately rejects it. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeAmendmentService::AmendTradeNotional. It reads the trade data (line ~60), builds an amendment record, then calls m_pLifecycleService->ValidateTrade(strTradeId) (line ~80) BEFORE writing the new notional anywhere. ValidateTrade reads the trade's amount from m_mapTradeStore in CTradeLifecycleService — which still holds the old (zero) notional because the amendment service never called a method to update it in the lifecycle store. The local currentData.m_dAmount = dNewNotional assignment (line ~96) only updates the local struct and the amendment map, never the lifecycle store.",
+      "files": [
+        "src/services/CTradeAmendmentService.cpp",
+        "src/services/CTradeLifecycleService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeAmendmentService::AmendTradeNotional as the location of the bug",
+        "The report identifies that ValidateTrade is called before the new notional is written to the lifecycle store",
+        "The report traces ValidateTrade reading the old amount from CTradeLifecycleService::m_mapTradeStore",
+        "The report explains that the local currentData.m_dAmount update and amendment map store do not update the lifecycle store",
+        "The report includes a suggested fix: update the trade amount in the lifecycle store before calling ValidateTrade"
+      ],
+      "weakness_targeted": "validate-before-update — amendment validates against stale store data; requires tracing 4 hops across two services and understanding that the local copy and the lifecycle store are separate"
+    },
+    {
+      "id": 13,
+      "prompt": "In our batch trade execution flow, notification handlers that listen for TRADE_EXECUTED events are seeing the trade in APPROVED state instead of EXECUTED state when they query GetTradeState inside the handler. Single-trade execution works correctly. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeServiceFacade::BatchExecuteTrades. In the loop, NotifyTradeExecuted is called first (line ~820), then ExecuteTrade is called after (line ~826). NotifyTradeExecuted dispatches to handlers synchronously via CNotificationService::DispatchToHandlers. When a handler calls GetTradeState during the callback, it reads from CTradeLifecycleService::m_mapTradeStore — which still holds Approved because ExecuteTrade (which calls StoreTradeData) hasn't run yet. Single-trade execution in the regular path calls ExecuteTrade first (which stores Executed) before firing any notification.",
+      "files": [
+        "src/services/CTradeServiceFacade.cpp",
+        "src/services/CNotificationService.cpp",
+        "src/services/CTradeLifecycleService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeServiceFacade::BatchExecuteTrades as the location of the bug",
+        "The report identifies that NotifyTradeExecuted is called before ExecuteTrade in the batch loop",
+        "The report traces that notification handlers call GetTradeState which reads from CTradeLifecycleService::m_mapTradeStore",
+        "The report explains that the store still holds Approved at notification time because ExecuteTrade (and StoreTradeData) runs after the notification",
+        "The report includes a suggested fix: call ExecuteTrade before NotifyTradeExecuted"
+      ],
+      "weakness_targeted": "notify-before-persist — ordering bug inside a loop; requires reading BatchExecuteTrades, tracing the notification dispatch chain, and understanding when StoreTradeData is called inside ExecuteTrade"
+    },
+    {
+      "id": 14,
+      "prompt": "Our risk service is supposed to block counterparties from accumulating more than their total exposure limit, but it only blocks individual large trades. A counterparty can submit many small trades that collectively far exceed their cumulative risk limit and all of them pass. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeRiskService::IsTradeWithinRiskLimits. The function correctly checks the single-trade limit (dAmount > limits.m_dSingleTradeLimit). But the cumulative check on line ~88 compares dCurrentExposure + dAmount against limits.m_dSingleTradeLimit instead of limits.m_dCumulativeLimit. Because m_dSingleTradeLimit is much smaller than m_dCumulativeLimit, trades that collectively exceed the cumulative limit still pass as long as the running total stays below the single-trade cap — which it always does for small trades.",
+      "files": [
+        "src/services/CTradeRiskService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeRiskService::IsTradeWithinRiskLimits as the location of the bug",
+        "The report identifies that the cumulative exposure check compares against m_dSingleTradeLimit instead of m_dCumulativeLimit",
+        "The report traces that m_mapCumulativeExposure is correctly maintained by RecordTradeExposure",
+        "The report explains that small trades pass because their running total never exceeds the per-trade cap, even when it far exceeds the cumulative limit",
+        "The report includes a suggested fix: change the cumulative check to use limits.m_dCumulativeLimit"
+      ],
+      "weakness_targeted": "wrong-map-key — two limits with similar names (single vs cumulative); bug is self-contained in one file but requires reading both the check function and the data structure to understand the mismatch"
+    },
+    {
+      "id": 15,
+      "prompt": "The first page of trade history is always empty or missing the most recent trades when we call GetTradeHistoryPage with page=1. Requesting page=2 returns what should be page 1. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeReportingService::GetTradeHistoryPage. The offset is computed as nPage * nPageSize (line ~62). The function is documented as 1-based (nPage=1 is the first page). For nPage=1 and nPageSize=10 the offset becomes 10, skipping the first 10 records. The correct formula is (nPage-1) * nPageSize. Callers pass nPage=1 expecting records 0..9 but receive records 10..19 instead. Page 0 would return the first records but is rejected by the nPage<1 guard.",
+      "files": [
+        "src/services/CTradeReportingService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeReportingService::GetTradeHistoryPage as the location of the bug",
+        "The report identifies that nOffset = nPage * nPageSize uses the 1-based page as a 0-based multiplier",
+        "The report explains that nPage=1 with nPageSize=10 gives offset=10, skipping the first 10 records",
+        "The report confirms the function header documents nPage as 1-based",
+        "The report includes a suggested fix: nOffset = (nPage - 1) * nPageSize"
+      ],
+      "weakness_targeted": "off-by-one in pagination — 1-based vs 0-based page index; self-contained but requires reading both the computation and the header comment to confirm the expected contract"
     }
   ]
 }

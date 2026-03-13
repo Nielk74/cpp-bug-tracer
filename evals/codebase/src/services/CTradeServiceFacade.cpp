@@ -775,3 +775,53 @@ bool CTradeServiceFacade::GetStoredContext(const std::string& strTradeId, SFullT
     
     return false;
 }
+
+// ---------------------------------------------------------------------------
+// BatchExecuteTrades
+//
+// Executes a list of approved trades in sequence and fires TRADE_EXECUTED
+// notifications for each one.
+//
+// BUG: NotifyTradeExecuted is called BEFORE ExecuteTrade updates the lifecycle
+// store. Any notification handler that calls GetTradeState() during the
+// notification callback will see the trade still in APPROVED state, not
+// EXECUTED state, because StoreTradeData hasn't been called yet at that point.
+//
+// Correct order: ExecuteTrade → (store updated to Executed) → NotifyTradeExecuted
+// Actual order:  NotifyTradeExecuted → (listener reads store = Approved) → ExecuteTrade
+// ---------------------------------------------------------------------------
+std::vector<std::string> CTradeServiceFacade::BatchExecuteTrades(
+    const std::vector<std::string>& vecTradeIds)
+{
+    std::vector<std::string> vecFailed;
+
+    for (size_t i = 0; i < vecTradeIds.size(); ++i)
+    {
+        const std::string& strTradeId = vecTradeIds[i];
+
+        // Verify the trade is in APPROVED state before proceeding
+        auto stateResult = m_pLifecycleService->GetTradeState(strTradeId);
+        if (stateResult.IsFailure()) {
+            vecFailed.push_back(strTradeId);
+            continue;
+        }
+
+        if (stateResult.GetValue() != TradeLifecycleState::Approved) {
+            vecFailed.push_back(strTradeId);
+            continue;
+        }
+
+        // BUG: fire the "trade executed" notification first, THEN actually
+        // execute the trade. Handlers that call GetTradeState inside
+        // OnTradeExecuted will still see TradeLifecycleState::Approved.
+        m_pNotificationService->NotifyTradeExecuted(strTradeId, "batch-execute");
+
+        // Execute (updates store to Executed) — happens after notification
+        auto execResult = m_pLifecycleService->ExecuteTrade(strTradeId);
+        if (execResult.IsFailure()) {
+            vecFailed.push_back(strTradeId);
+        }
+    }
+
+    return vecFailed;
+}
