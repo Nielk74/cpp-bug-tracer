@@ -28,11 +28,11 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | | **Score (1–11)** | **10/11** | **8/11** | **10/11** |
 | | | | | |
 | 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS |
-| 13 | Batch notify-before-execute ordering | ❌ FAIL⁵ | ✅ PASS | ✅ PASS |
+| 13 | Batch notify-before-execute ordering | ✅ PASS⁵ | ✅ PASS | ✅ PASS |
 | 14 | Wrong risk limit in cumulative check | ✅ PASS | ✅ PASS | ✅ PASS |
 | 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS |
-| | **Score (12–15)** | **2/4** | **4/4** | **4/4** |
-| | **Total score** | **12/15** | **12/15** | **14/15** |
+| | **Score (12–15)** | **3/4** | **4/4** | **4/4** |
+| | **Total score** | **13/15** | **12/15** | **14/15** |
 
 ### Notes
 
@@ -44,7 +44,7 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁴ **Eval 12 multi-agent partial**: Orchestrator wastes steps attempting `cpp-bug-tracer/agents/worker-agent` (non-existent). Abstractor report mentions validation-before-update but hallucinated `TradeValidator.cpp` — never traces `m_mapTradeStore` or the local copy issue. 2/5 assertions pass.
 
-⁵ **Eval 13 multi-agent fail**: Abstractor hallucinated a missing case in `CTradeEventDispatcher.cpp` (file doesn't exist). The actual bug is `NotifyTradeExecuted` called before `ExecuteTrade` in `BatchExecuteTrades`. Step budget exhausted by worker-agent failures before a proper investigation began.
+⁵ **Eval 13 multi-agent (after fix)**: Previously failed — abstractor hallucinated `CTradeEventDispatcher.cpp` due to step budget exhausted by worker-agent failures. Fixed by rewriting orchestrator: `grep: false`, `steps: 6`, first action hardcoded to abstractor. Re-run now correctly identifies `NotifyTradeExecuted` before `ExecuteTrade` at line 817.
 
 ---
 
