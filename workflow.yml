@@ -7,31 +7,17 @@ agents:
   - name: orchestrator
     file: orchestrator.md
     mode: primary
-    model: ollama/qwen3-coder:30b
-    calls: [investigator, abstractor, explorer, planner]
+    model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
+    calls: [investigator, abstractor]
 
   - name: investigator
     file: investigator.md
     mode: subagent
-    model: ollama/qwen3-coder:30b
     calls: []
 
   - name: abstractor
     file: abstractor.md
     mode: subagent
-    model: ollama/qwen3-coder:30b
-    calls: []
-
-  - name: explorer
-    file: explorer.md
-    mode: subagent
-    model: ollama/qwen3-coder:30b
-    calls: []
-
-  - name: planner
-    file: planner.md
-    mode: subagent
-    model: ollama/qwen3-coder:30b
     calls: []
 
 mock_responses:
@@ -344,34 +330,11 @@ mock_responses:
     - trigger: ".*"
       response: |
         SYNTHESIS:
-        - Thread connections: The sending side passes a numeric event type or enum constant that the receiving side dispatches using that value as a switch/map key. When the wrong constant is used on the sending side, all handlers on the receiving side for the correct type are bypassed.
-        - Root cause: The sender uses type/constant X where type/constant Y was intended — the receiver never sees Y, so Y-handlers never fire.
-        - Why this explains the symptom: Handlers registered for the correct type never match; handlers for the wrong type fire unexpectedly.
+        - Thread connections: CSettlementService::DispatchSettlementEvent sends event type 3 for COMPLETED settlements. CTradeEventDispatcher::DispatchEvent receives this and dispatches via switch(m_nEventType). Case 3 maps to OnTradeSubmitted callback.
+        - Root cause: Event type collision — settlement COMPLETED uses type 3 which collides with trade SUBMITTED. Settlement FAILED (type 4) and CANCELLED (type 5) have no cases in the switch and fall to default, silently dropped.
+        - Why this explains the symptom: Settlement listeners never receive settlement-specific callbacks because: (1) COMPLETED triggers OnTradeSubmitted instead of OnSettlementCompleted, (2) FAILED/CANCELLED are silently dropped.
 
         CONFIDENCE: HIGH
         GAPS: None — both send and receive paths confirmed.
 
-  explorer:
-    - trigger: ".*"
-      response: |
-        STRUCTURE:
-        - src/ui/ — UI layer (TradeForm, CounterpartyField, ProductSelector, NotionalWidget)
-        - src/services/ — service layer (CCounterpartyService, CCreditCheckService, CNotificationService, CSettlementService, CTradeLifecycleService, CTradeServiceFacade)
-        - src/legacy/ — legacy adapters (CCounterpartyAdapter, CValidationRuleEngine, CTradeEventDispatcher)
-        - src/core/ — core logic (TradeValidator)
-        - include/ — headers mirroring src/ layout
-
-        SYMBOL LOCATIONS:
-        - src/services/CSettlementService.cpp — DispatchSettlementEvent, settlement event types
-        - src/legacy/CTradeEventDispatcher.cpp — DispatchEvent switch, listener callbacks
-        - src/services/CNotificationService.cpp — NotifyTradeValidated, SendNotification, DispatchToHandlers
-        - src/services/CCreditCheckService.cpp — ReserveCredit, GenerateReservationId, ReleaseCreditReservation
-        - src/services/CTradeServiceFacade.cpp — FullTradeWorkflow, CreateAndValidateTrade, m_nTotalWorkflowsStarted
-        - src/services/CCounterpartyService.cpp — LoadCounterpartyByCode, LoadFromAdapter
-
-        RELEVANT FILES (by bug category):
-        1. Event/notification bugs → src/services/CNotificationService.cpp + src/legacy/CTradeEventDispatcher.cpp
-        2. Settlement event bugs → src/services/CSettlementService.cpp + src/legacy/CTradeEventDispatcher.cpp
-        3. Counter/metric bugs → src/services/CTradeServiceFacade.cpp
-        4. Reservation ID bugs → src/services/CCreditCheckService.cpp
-        5. Counterparty lookup bugs → src/services/CCounterpartyService.cpp
+        FIX DIRECTION: Use distinct event type ranges for settlement events (e.g. 10, 11, 12) or add settlement-specific cases to DispatchEvent switch.
