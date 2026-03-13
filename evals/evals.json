@@ -230,6 +230,70 @@
         "The report includes a suggested fix: nOffset = (nPage - 1) * nPageSize"
       ],
       "weakness_targeted": "off-by-one in pagination — 1-based vs 0-based page index; self-contained but requires reading both the computation and the header comment to confirm the expected contract"
+    },
+    {
+      "id": 16,
+      "prompt": "Our exposure tracker shows counterparty risk growing without bound. We create trades and sometimes cancel them, but GetNetExposure always returns the cumulative sum of all trades ever created for a counterparty — cancellations have no effect on the number. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeExposureTracker. RecordExposure populates m_mapExposureByCounterparty and m_mapTradeToCounterparty but never writes to m_mapTradeAmount. ReleaseExposure reads m_mapTradeAmount[strTradeId] to find the amount to subtract — getting 0.0 since the map was never populated. The subtraction is a no-op so exposure never decreases. Fix: add m_mapTradeAmount[strTradeId] = dAmount in RecordExposure.",
+      "files": [
+        "src/services/CTradeExposureTracker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeExposureTracker::ReleaseExposure as the location where the bug manifests",
+        "The report identifies that m_mapTradeAmount is never populated by RecordExposure",
+        "The report traces that ReleaseExposure reads m_mapTradeAmount[strTradeId] to get the amount to subtract",
+        "The report explains that m_mapTradeAmount[strTradeId] returns 0.0 because RecordExposure never wrote to it",
+        "The report includes a suggested fix: add m_mapTradeAmount[strTradeId] = dAmount inside RecordExposure"
+      ],
+      "weakness_targeted": "cross-function state gap: RecordExposure writes two of three maps; ReleaseExposure reads the third. A single agent reading only ReleaseExposure sees a plausible lookup; only by also reading RecordExposure is it clear the map is never populated."
+    },
+    {
+      "id": 17,
+      "prompt": "Our P&L reporting system always shows zero mark-to-market value for every trade regardless of notional amount. We have confirmed that SetPricingRate is being called correctly with rates for EQUITY, FX, CASHFLOW and DERIVATIVE product types before any P&L calculation. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeValuationService::CalculatePnL. It reads m_mapPricingRates using tradeData.m_strCounterpartyCode as the key. SetPricingRate stores rates keyed by product type string (EQUITY, FX, etc.). Counterparty codes like CPTY_001 are never registered in m_mapPricingRates, so the lookup returns 0.0 via default map construction. Fix: use ProductTypeToString(tradeData.m_nProductType) as the lookup key.",
+      "files": [
+        "src/services/CTradeValuationService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeValuationService::CalculatePnL as the location of the bug",
+        "The report identifies that m_mapPricingRates is indexed by counterparty code instead of product type string",
+        "The report traces that SetPricingRate stores rates keyed by product type string (EQUITY, FX, CASHFLOW, DERIVATIVE)",
+        "The report explains that counterparty codes are never keys in m_mapPricingRates so the lookup always returns 0.0",
+        "The report includes a suggested fix: use ProductTypeToString(tradeData.m_nProductType) as the map key"
+      ],
+      "weakness_targeted": "key mismatch across two functions: SetPricingRate defines the key namespace (product type strings); CalculatePnL uses a completely different key (counterparty code). A single agent anchoring on CalculatePnL sees a plausible map lookup; only by also reading SetPricingRate is the key mismatch visible."
+    },
+    {
+      "id": 18,
+      "prompt": "Our sanctions screening never blocks any trade even for counterparties we have explicitly added to the sanctions list via AddSanctionedCounterparty. Compliance officers confirm the list is populated before trades are submitted. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeComplianceService. AddSanctionedCounterparty stores counterparty CODES in m_setSanctionedCodes (e.g. CPTY_BAD). RunComplianceCheck calls IsCounterpartySanctioned(cptyData.m_strName) — passing the counterparty display name (e.g. Bad Corp International Ltd) instead of the code. The set contains codes, not names, so the lookup never matches. Fix: pass strCptyCode or cptyData.m_strCode to IsCounterpartySanctioned instead of cptyData.m_strName.",
+      "files": [
+        "src/services/CTradeComplianceService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeComplianceService::RunComplianceCheck as the location of the bug",
+        "The report identifies that IsCounterpartySanctioned is called with cptyData.m_strName (the display name) instead of the counterparty code",
+        "The report traces that AddSanctionedCounterparty stores entries in m_setSanctionedCodes keyed by counterparty CODE",
+        "The report explains that display names (e.g. Bad Corp International Ltd) are never in m_setSanctionedCodes which holds codes (e.g. CPTY_BAD)",
+        "The report includes a suggested fix: pass strCptyCode or cptyData.m_strCode to IsCounterpartySanctioned"
+      ],
+      "weakness_targeted": "name-vs-code mismatch across two functions: AddSanctionedCounterparty defines the set contents (codes); RunComplianceCheck queries with names. Requires reading both functions simultaneously — neither looks wrong in isolation."
+    },
+    {
+      "id": 19,
+      "prompt": "GetAuditTrail always returns an empty list for every trade even though we can confirm from GetTotalRecordCount that audit records are being written. The total record count increases as expected after each operation, but retrieving records by trade ID never returns anything. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeAuditService. RecordAuditEvent generates a strOperationId (e.g. OP_TRADE-001_1) and stores record.m_strTradeId = strOperationId instead of record.m_strTradeId = strTradeId. GetAuditTrail iterates m_mapAuditLog and collects records where record.m_strTradeId == strTradeId — but because m_strTradeId holds the operation ID not the trade ID, nothing matches. Fix: change record.m_strTradeId = strOperationId to record.m_strTradeId = strTradeId in RecordAuditEvent.",
+      "files": [
+        "src/services/CTradeAuditService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeAuditService::RecordAuditEvent as the location of the bug",
+        "The report identifies that record.m_strTradeId is set to strOperationId instead of strTradeId",
+        "The report traces that GetAuditTrail searches for records where record.m_strTradeId == strTradeId",
+        "The report explains that because m_strTradeId holds the operation ID the search never matches any record",
+        "The report includes a suggested fix: set record.m_strTradeId = strTradeId in RecordAuditEvent"
+      ],
+      "weakness_targeted": "write-vs-read field mismatch: RecordAuditEvent writes the wrong value into m_strTradeId; GetAuditTrail reads it expecting the trade ID. A single agent reading only GetAuditTrail sees a correct scan loop; only by also reading RecordAuditEvent is it clear the field was set incorrectly."
     }
   ]
 }
