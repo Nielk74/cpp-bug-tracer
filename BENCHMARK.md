@@ -38,8 +38,9 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 17 | P&L key: counterparty code vs product type | ❌ FAIL⁶ | ✅ PASS | — |
 | 18 | Sanctions: name vs code lookup | ❌ FAIL⁶ | ✅ PASS | — |
 | 19 | Audit: operation ID written to trade ID field | ❌ FAIL⁶ | ✅ PASS | — |
-| 20 | Rate limit: per-hour config vs per-minute window | 🔄 TBD | 🔄 TBD | — |
-| 21 | Approval level: 1-based config vs 0-based gate | 🔄 TBD | 🔄 TBD | — |
+| 20 | Rate limit: per-hour config vs per-minute window | ❌ FAIL⁷ | ✅ PASS | — |
+| 21 | Approval level: 1-based config vs 0-based gate | ❌ FAIL⁷ | ✅ PASS | — |
+| 22 | Position store: reversed key order (writer vs reader) | ❌ FAIL⁸ | ✅ PASS | — |
 
 ### Notes
 
@@ -53,6 +54,10 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁶ **Evals 16–19 multi-agent fail (single-file bugs)**: These evals have both functions in the same .cpp file. Single-agent reads the file and immediately finds the bug. Multi-agent sends generic grep prompts, investigators fail to find the new service files by name, abstractor hallucinates file names. Revealed that single-file bugs do NOT showcase multi-agent advantage.
 
+⁷ **Evals 20–21 multi-agent fail (cross-file with call chain)**: Even though bugs span two .cpp files, there is a direct call chain (IsRateLimited → GetRateLimit, CanApprove → GetRequiredLevel). Single-agent follows the call chain naturally and reads both files. Multi-agent still hallucinated — investigators failed to discover the new service files. Investigator fix (Pattern E: glob by class name) not yet applied at time of test.
+
+⁸ **Eval 22 multi-agent fail (true cross-file, no call chain)**: CTradePositionWriter and CTradePositionReader both access CTradePositionStore independently. Multi-agent report cited "CTradePositionStore.cpp lines 45/67" — wrong file, hallucinated. Investigators sent generic grep terms, missed the actual writer/reader files. Investigator Pattern E fix (glob `**/<ClassName>.cpp`) added to address this.
+
 ⁵ **Eval 13 multi-agent (after fix)**: Previously failed — abstractor hallucinated `CTradeEventDispatcher.cpp` due to step budget exhausted by worker-agent failures. Fixed by rewriting orchestrator: `grep: false`, `steps: 6`, first action hardcoded to abstractor. Re-run now correctly identifies `NotifyTradeExecuted` before `ExecuteTrade` at line 817.
 
 ---
@@ -60,8 +65,9 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 ## Key observations
 
 ### When multi-agent wins
-- **True cross-file bugs** (eval 9, evals 20–21): two parallel threads read different service files simultaneously. Each file looks correct in isolation; only by comparing thread outputs does the mismatch appear.
+- **True cross-file bugs** (eval 9): two parallel threads read different service files simultaneously. Each file looks correct in isolation; only by comparing thread outputs does the mismatch appear.
 - **Avoids anchoring**: qwen3 single-agent anchors on the first file it reads. On a cross-file bug it may declare the first file correct and stop, never reading the second.
+- **Prerequisite**: investigators must be able to discover files by class name. Pattern E (glob `**/<ClassName>.cpp`) is necessary — without it, investigators grep for symbols and may hit header files first, leading to hallucination.
 
 ### When single-agent wins
 - **Single-file bugs** (evals 16–19): both functions are in the same .cpp. Single-agent reads the file once and finds the bug instantly. Multi-agent sends generic grep prompts, investigators struggle to find new service files by name, abstractor hallucinates.

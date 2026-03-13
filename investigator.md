@@ -27,7 +27,7 @@ You receive:
 
 ## Process
 
-1. **Find the starting point**: grep for the symbol if no file path given. Pick the `.cpp` implementation file, not the header.
+1. **Find the starting point**: if the starting point is a class name, use glob `**/<ClassName>.cpp` to find the implementation file directly (see Pattern E). Otherwise grep for the symbol. Always prefer `.cpp` over `.h` files.
 2. **Read the function body**: do not draw conclusions from grep snippets — read the actual function in full.
 3. **Follow the chain**: if the function calls another relevant function, grep for it and read its body too.
 4. **Stop when you have the answer** — do not explore tangents.
@@ -37,6 +37,14 @@ You may call grep up to 4 times and read up to 5 files. Stop as soon as you can 
 ## Special investigation patterns
 
 Apply these when relevant:
+
+### Pattern E — Finding a class implementation file
+When your starting point is a class name (e.g., `CTradePositionWriter`) and no file path is given:
+1. **Use glob first**: search `**/<ClassName>.cpp` — this finds the implementation file directly without hitting headers
+2. Read that `.cpp` file in full
+3. Do NOT read `.h` files as your primary source — headers only have declarations, not the logic you need
+
+Example: starting point `CTradePositionWriter` → glob `**/CTradePositionWriter.cpp` → read the result directly.
 
 ### Pattern A — Numeric constant passed between files
 If you find a numeric literal (e.g., `nEventType = 3`) being passed to another class's function:
