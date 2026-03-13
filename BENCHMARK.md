@@ -33,6 +33,13 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS |
 | | **Score (12–15)** | **3/4** | **4/4** | **4/4** |
 | | **Total score** | **13/15** | **12/15** | **14/15** |
+| | | | | |
+| 16 | Exposure release reads unpopulated map | ❌ FAIL⁶ | ✅ PASS | — |
+| 17 | P&L key: counterparty code vs product type | ❌ FAIL⁶ | ✅ PASS | — |
+| 18 | Sanctions: name vs code lookup | ❌ FAIL⁶ | ✅ PASS | — |
+| 19 | Audit: operation ID written to trade ID field | ❌ FAIL⁶ | ✅ PASS | — |
+| 20 | Rate limit: per-hour config vs per-minute window | 🔄 TBD | 🔄 TBD | — |
+| 21 | Approval level: 1-based config vs 0-based gate | 🔄 TBD | 🔄 TBD | — |
 
 ### Notes
 
@@ -44,6 +51,8 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁴ **Eval 12 multi-agent partial**: Orchestrator wastes steps attempting `cpp-bug-tracer/agents/worker-agent` (non-existent). Abstractor report mentions validation-before-update but hallucinated `TradeValidator.cpp` — never traces `m_mapTradeStore` or the local copy issue. 2/5 assertions pass.
 
+⁶ **Evals 16–19 multi-agent fail (single-file bugs)**: These evals have both functions in the same .cpp file. Single-agent reads the file and immediately finds the bug. Multi-agent sends generic grep prompts, investigators fail to find the new service files by name, abstractor hallucinates file names. Revealed that single-file bugs do NOT showcase multi-agent advantage.
+
 ⁵ **Eval 13 multi-agent (after fix)**: Previously failed — abstractor hallucinated `CTradeEventDispatcher.cpp` due to step budget exhausted by worker-agent failures. Fixed by rewriting orchestrator: `grep: false`, `steps: 6`, first action hardcoded to abstractor. Re-run now correctly identifies `NotifyTradeExecuted` before `ExecuteTrade` at line 817.
 
 ---
@@ -51,8 +60,12 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 ## Key observations
 
 ### When multi-agent wins
-- **Cross-layer bugs** (eval 9): two parallel threads cover the guard path and the state update path simultaneously — neither thread alone has the full picture
-- **Avoids anchoring**: qwen3 single-agent anchors on the first file it reads and may miss the root cause in a second file
+- **True cross-file bugs** (eval 9, evals 20–21): two parallel threads read different service files simultaneously. Each file looks correct in isolation; only by comparing thread outputs does the mismatch appear.
+- **Avoids anchoring**: qwen3 single-agent anchors on the first file it reads. On a cross-file bug it may declare the first file correct and stop, never reading the second.
+
+### When single-agent wins
+- **Single-file bugs** (evals 16–19): both functions are in the same .cpp. Single-agent reads the file once and finds the bug instantly. Multi-agent sends generic grep prompts, investigators struggle to find new service files by name, abstractor hallucinates.
+- **Step efficiency**: multi-agent's orchestrator→abstractor→investigator chain costs 3–5× more steps; for trivial bugs this overhead dominates.
 
 ### GLM-5 vs qwen3 single-agent
 | | GLM-5 | qwen3 |

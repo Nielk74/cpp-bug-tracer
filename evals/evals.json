@@ -294,6 +294,40 @@
         "The report includes a suggested fix: set record.m_strTradeId = strTradeId in RecordAuditEvent"
       ],
       "weakness_targeted": "write-vs-read field mismatch: RecordAuditEvent writes the wrong value into m_strTradeId; GetAuditTrail reads it expecting the trade ID. A single agent reading only GetAuditTrail sees a correct scan loop; only by also reading RecordAuditEvent is it clear the field was set incorrectly."
+    },
+    {
+      "id": 20,
+      "prompt": "Our rate limiter is supposed to prevent counterparties from submitting more than their configured number of trades per hour, but it never blocks anyone. We have confirmed that SetRateLimit is being called with the correct per-hour values before any submissions. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeRateLimiter::IsRateLimited and CTradeRateLimitConfig::SetRateLimit. SetRateLimit stores limits as max trades PER HOUR (documented: nMaxTradesPerHour). IsRateLimited counts submissions in a 60-second window (WINDOW_SECONDS = 60) and compares the per-minute count against the per-hour limit. A counterparty configured for 60 trades/hour would need 60 trades in a single minute to be blocked — 60x too permissive. Fix: change WINDOW_SECONDS from 60 to 3600.",
+      "files": [
+        "src/services/CTradeRateLimiter.cpp",
+        "src/services/CTradeRateLimitConfig.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeRateLimiter::IsRateLimited as the location of the bug",
+        "The report identifies that the rolling window is 60 seconds but CTradeRateLimitConfig stores limits as max trades per HOUR",
+        "The report traces that CTradeRateLimitConfig::SetRateLimit documents the unit as per HOUR (nMaxTradesPerHour)",
+        "The report explains that counting per-minute submissions against a per-hour limit makes the limiter 60x too permissive",
+        "The report includes a suggested fix: change WINDOW_SECONDS from 60 to 3600"
+      ],
+      "weakness_targeted": "cross-file time-unit mismatch: CTradeRateLimitConfig stores per-HOUR limits; CTradeRateLimiter checks a 60-second window. Each file looks correct in isolation. Only by reading both and comparing time units is the mismatch visible. Single-agent anchoring on one file misses the discrepancy."
+    },
+    {
+      "id": 21,
+      "prompt": "Senior traders and desk heads are being blocked from approving trades they should be authorized to approve. Only Risk Directors can approve anything above the most basic trades. We have verified that RegisterApprover and SetRequiredLevel are called with correct arguments. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeApprovalGate::CanApprove and CTradeApprovalLevelConfig::GetRequiredLevel. GetRequiredLevel returns a 1-based level (1=Junior, 2=Senior, 3=DeskHead, 4=Director). CTradeApprovalGate stores approver levels 0-based (0=Junior, 1=Senior, 2=DeskHead, 3=Director). CanApprove compares nApproverLevel (0-based) >= nRequiredLevel (1-based) directly — always off by one. A Desk Head (level 2, 0-based) cannot approve trades requiring level 3 (Desk Head, 1-based). Fix: use nApproverLevel >= (nRequiredLevel - 1) or (nApproverLevel + 1) >= nRequiredLevel.",
+      "files": [
+        "src/services/CTradeApprovalGate.cpp",
+        "src/services/CTradeApprovalLevelConfig.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeApprovalGate::CanApprove as the location of the bug",
+        "The report identifies that CTradeApprovalLevelConfig::GetRequiredLevel returns a 1-based level",
+        "The report traces that CTradeApprovalGate stores and compares approver levels as 0-based",
+        "The report explains that directly comparing 0-based approver level against 1-based required level is always off by one",
+        "The report includes a suggested fix involving adjusting one side by 1 before comparing"
+      ],
+      "weakness_targeted": "cross-file indexing mismatch: CTradeApprovalLevelConfig uses 1-based levels; CTradeApprovalGate uses 0-based. Each service looks internally correct. The bug is only visible when comparing how each service defines 'level N'. Requires reading both files simultaneously."
     }
   ]
 }
