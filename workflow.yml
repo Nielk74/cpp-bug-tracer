@@ -8,16 +8,18 @@ agents:
     file: orchestrator.md
     mode: primary
     model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
-    calls: [investigator, abstractor]
-
-  - name: investigator
-    file: investigator.md
-    mode: subagent
-    calls: []
+    calls: [abstractor]
 
   - name: abstractor
     file: abstractor.md
     mode: subagent
+    model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
+    calls: [investigator]
+
+  - name: investigator
+    file: investigator.md
+    mode: subagent
+    model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
     calls: []
 
 mock_responses:

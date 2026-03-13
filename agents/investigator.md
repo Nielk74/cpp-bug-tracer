@@ -1,7 +1,7 @@
 ---
 description: C++ bug investigation agent — follows a specific execution thread by reading files and tracing call chains. Use for multi-hop investigations where a question requires reading 2+ files.
 mode: all
-model: ollama/qwen3-coder:30b
+model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
 steps: 12
 tools:
   read: true
