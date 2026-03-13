@@ -1,0 +1,83 @@
+name: cpp-bug-tracer
+description: Traces bugs in C++ codebases using coordinated specialist agents
+version: 1
+max_depth: 2
+
+agents:
+  - name: orchestrator
+    file: cpp-bug-tracer/orchestrator.md
+    mode: primary
+    model: ollama/qwen3-coder:30b
+    calls:
+      - cpp-bug-tracer/planner
+      - cpp-bug-tracer/explorer
+      - cpp-bug-tracer/abstractor
+
+  - name: planner
+    file: cpp-bug-tracer/planner.md
+    mode: all
+    model: ollama/qwen3-coder:30b
+    calls: []
+
+  - name: explorer
+    file: cpp-bug-tracer/explorer.md
+    mode: all
+    model: ollama/qwen3-coder:30b
+    calls: []
+
+  - name: abstractor
+    file: cpp-bug-tracer/abstractor.md
+    mode: all
+    model: ollama/qwen3-coder:30b
+    calls: []
+
+  - name: investigator
+    file: cpp-bug-tracer/investigator.md
+    mode: all
+    model: ollama/qwen3-coder:30b
+    calls: []
+
+mock_responses:
+  cpp-bug-tracer/planner:
+    - trigger: ".*"
+      response: |
+        VERDICT: START
+        DECISION: Search for TradeValidator class which handles validation logic
+        ENTRY POINTS:
+        - TradeValidator: Core validation class mentioned in bug report
+        NEXT SYMBOL: TradeValidator
+
+  cpp-bug-tracer/explorer:
+    - trigger: ".*"
+      response: |
+        SEARCH: TradeValidator
+        MATCHES:
+        - TradeValidator.cpp:15 — class TradeValidator definition
+        - TradeValidator.cpp:122 — void TradeValidator::validate()
+        - TradeValidator.cpp:309 — void TradeValidator::validateProductSpecific()
+        
+        FILE READ: TradeValidator.cpp lines 305-320
+        ```
+        309: void TradeValidator::validateProductSpecific(const Trade& trade) {
+        310:     auto validator = createValidator(trade.productType);
+        311:     validator->validate(trade);  // CRASH: validator is null for unregistered types
+        312: }
+        ```
+        SUMMARY: Found crash site - validateProductSpecific calls createValidator without null check
+
+  cpp-bug-tracer/abstractor:
+    - trigger: ".*"
+      response: |
+        SEARCH: TradeValidator
+        MATCHES:
+        - TradeValidator.cpp:309 — validateProductSpecific method
+        
+        ANALYSIS:
+        - Null pointer risk: YES — TradeValidator.cpp:311 dereferences validator without null check
+        - Unchecked factory return: YES — createValidator() returns nullptr for unregistered types
+        - Raw pointer dereference: YES — line 311
+        - Lifetime issue: NO
+        
+        CONCLUSION: Crash occurs because createValidator() returns nullptr for unregistered product types and validateProductSpecific() dereferences it without checking.
+        
+        THREADS: none
