@@ -38,7 +38,7 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 17 | P&L key: counterparty code vs product type | ❌ FAIL⁶ | ✅ PASS | — |
 | 18 | Sanctions: name vs code lookup | ❌ FAIL⁶ | ✅ PASS | — |
 | 19 | Audit: operation ID written to trade ID field | ❌ FAIL⁶ | ✅ PASS | — |
-| 20 | Rate limit: per-hour config vs per-minute window | ❌ FAIL¹⁰ | ✅ PASS | — |
+| 20 | Rate limit: per-hour config vs per-minute window | ✅ PASS¹⁰ | ✅ PASS | — |
 | 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — |
 | 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — |
 | 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | ✅ PASS | — |
@@ -57,7 +57,7 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 
 ⁷ **Evals 20–21 original multi-agent fail (task:false)**: Abstractor had task:false — investigators never ran, pure hallucination.
 
-¹⁰ **Eval 20 multi-agent fail (after abstractor fix)**: Investigators ran and read real files, but followed the wrong thread — anchored on CTradeServiceFacade→CTradeLifecycleService call chain instead of going directly to CTradeRateLimiter/CTradeRateLimitConfig. The orchestrator classified as event/notification instead of counter/metric. Correct diagnosis requires investigators to start from the rate limiter class directly.
+¹⁰ **Eval 20 multi-agent PASS (after orchestrator classification fix)**: Orchestrator now classifies "never blocks, SetRateLimit with per-hour values" as Unit/scale mismatch. Derived Thread A → CTradeRateLimitConfig, Thread B → CTradeRateLimiter from "SetRateLimit" method name. Report correctly cites CTradeRateLimiter.cpp:71 (WINDOW_SECONDS=60) and exact fix (3600).
 
 ¹¹ **Eval 21 multi-agent partial (after abstractor fix)**: Investigators ran and found CTradeApprovalGate.cpp:63 and CTradeApprovalLevelConfig. Correctly identified 0-based vs 1-based mismatch and right fix direction. Gaps: CTradeApprovalLevelConfig line is "XX" (investigators hit step limit before fully reading the file). Example explanation in report slightly off, but core diagnosis correct.
 
