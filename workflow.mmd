@@ -1,0 +1,47 @@
+flowchart TD
+    User(["👤 User\nreports C++ bug"])
+
+    subgraph orchestrator["🎯 orchestrator  ·  primary agent"]
+        O1["1 · Classify bug type\n(event / counter / ID / conditional\n/ cross-layer / should-fail-but-doesn't)"]
+        O2["2 · Build Thread A & B prompts\n(starting class · specific question · path)"]
+        O3["4 · Write final report\n(call graph · locations · fix direction)"]
+    end
+
+    subgraph abstractor["🔬 abstractor  ·  investigation coordinator"]
+        A1["Spawn Thread A & Thread B\nin parallel"]
+        A2["Synthesize findings\n(root cause · confidence · gaps)"]
+        A3{"Confidence\nLOW?"}
+        A4["Spawn follow-up\ninvestigator"]
+    end
+
+    subgraph investigators["🔍 investigator  ×2  (parallel)"]
+        I1["Thread A\nTrace one execution path\n(grep → read files → follow chain)"]
+        I2["Thread B\nTrace another execution path\n(grep → read files → follow chain)"]
+    end
+
+    Codebase[("📁 C++ codebase")]
+
+    Report(["📄 Bug report\n(root cause · call graph\n· suggested fix)"])
+
+    User --> O1
+    O1 --> O2
+    O2 -->|"Task: cpp-bug-tracer/abstractor"| A1
+    A1 -->|"Task: cpp-bug-tracer/investigator"| I1
+    A1 -->|"Task: cpp-bug-tracer/investigator"| I2
+    I1 <-->|"grep · read"| Codebase
+    I2 <-->|"grep · read"| Codebase
+    I1 -->|findings| A2
+    I2 -->|findings| A2
+    A2 --> A3
+    A3 -->|YES| A4
+    A4 -->|"Task: cpp-bug-tracer/investigator"| Codebase
+    A4 --> A2
+    A3 -->|NO · SYNTHESIS| O3
+    O3 --> Report
+
+    style orchestrator fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    style abstractor fill:#fce7f3,stroke:#ec4899,color:#831843
+    style investigators fill:#dcfce7,stroke:#22c55e,color:#14532d
+    style Codebase fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    style User fill:#f1f5f9,stroke:#64748b,color:#1e293b
+    style Report fill:#f0fdf4,stroke:#16a34a,color:#14532d
