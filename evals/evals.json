@@ -362,6 +362,41 @@
         "The report suggests a fix involving unit conversion (divide bps by 100 before comparing, or store as percent)"
       ],
       "weakness_targeted": "units mismatch between two independent services sharing a store. CTradeFeeSchedule stores in basis points; CTradeFeeValidator reads and compares against percentage. No call chain between them — each service looks internally consistent. Single-agent anchors on the validation path and sees correct comparison logic without context of the fee units. Multi-agent: Thread A reads the schedule (basis points), Thread B reads the validator (percent) — abstractor sees the 100x unit mismatch."
+    },
+    {
+      "id": 24,
+      "prompt": "Urgent trades are being processed last in our trade queue. Routine trades are getting ahead of urgent ones. We use a priority classifier to assign urgency levels and a separate scheduler to determine processing order. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradePriorityClassifier assigns priority 1=URGENT (lowest integer = highest urgency). CTradePriorityScheduler processes in descending integer order (highest integer first), treating higher numbers as higher priority. Result: URGENT trades (priority 1) are processed last, ROUTINE trades (priority 5) are processed first. Neither service calls the other — both only use CTradePriorityQueue. Fix: invert one convention (either classifier uses 5=URGENT or scheduler uses ascending order).",
+      "files": [
+        "src/services/CTradePriorityClassifier.cpp",
+        "src/services/CTradePriorityScheduler.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradePriorityClassifier as using 1=URGENT (lower integer = higher urgency)",
+        "The report identifies CTradePriorityScheduler as processing in descending order (higher integer = higher priority)",
+        "The report explains that this causes URGENT (priority 1) trades to be processed last",
+        "The report identifies that the two services have opposite priority conventions",
+        "The report suggests a fix: invert one convention so both use the same scale"
+      ],
+      "weakness_targeted": "priority convention inversion across two independent services. Classifier and scheduler each look internally consistent. Bug only visible by reading both and comparing how they interpret the integer priority value. No call chain between them — both only touch CTradePriorityQueue."
+    },
+    {
+      "id": 25,
+      "prompt": "Our risk limit checks are passing for trades that clearly exceed configured limits. A 50 million USD VANILLA_EQUITY trade passes a limit configured at 100,000 USD. The notional normalization service and the risk limit configuration are separate components. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeNotionalNormalizer::Normalize divides raw notional by 1,000,000 (converts to millions): $50,000,000 becomes 50.0. CTradeRiskLimitConfig::GetLimit returns limits in absolute USD: 100,000.0. CTradeRiskChecker::IsWithinRiskLimit compares 50.0 <= 100000.0 — always true regardless of trade size. Three independent files — Normalizer has no call to LimitConfig and vice versa. Fix: compare raw notional directly against the limit (skip normalization for comparison), or multiply normalized value by 1,000,000 before comparing.",
+      "files": [
+        "src/services/CTradeNotionalNormalizer.cpp",
+        "src/services/CTradeRiskLimitConfig.cpp",
+        "src/services/CTradeRiskChecker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeRiskChecker::IsWithinRiskLimit as the comparison site",
+        "The report identifies that CTradeNotionalNormalizer divides by 1,000,000 (outputs millions-scale)",
+        "The report identifies that CTradeRiskLimitConfig stores limits in absolute USD",
+        "The report explains that comparing millions-scale (50.0) against absolute USD (100000.0) always evaluates as within-limit",
+        "The report suggests a fix: remove normalization before comparison or multiply normalized value back to absolute USD"
+      ],
+      "weakness_targeted": "three-file unit mismatch: Normalizer (millions) + LimitConfig (absolute USD) + Checker (compares directly). Each file looks internally correct. Bug requires reading all three and tracing how the value flows from Normalizer through Checker against LimitConfig. Single-agent may read Checker and see a correct comparison, then read Normalizer and see reasonable division — without reading LimitConfig it cannot know the limit is in a different unit."
     }
   ]
 }
