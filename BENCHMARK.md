@@ -1,6 +1,6 @@
 # cpp-bug-tracer Benchmark
 
-Comparing three configurations on the same 11 C++ bug evals:
+Comparing three configurations on **15 C++ bug evals** (11 original + 4 new complex evals):
 
 | Config | Architecture | Model |
 |--------|-------------|-------|
@@ -25,7 +25,14 @@ Comparing three configurations on the same 11 C++ bug evals:
 | 9 | Double settlement (cross-layer state) | ✅ PASS | ❌ FAIL³ | ✅ PASS |
 | 10 | Credit limit `Success(false)` misuse | ✅ PASS | ✅ PASS | ✅ PASS |
 | 11 | Wrong argument to credit release | ✅ PASS | ✅ PASS | ✅ PASS |
-| | **Score** | **10/11** | **8/11** | **9/11** |
+| | **Score (1–11)** | **10/11** | **8/11** | **9/11** |
+| | | | | |
+| 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS |
+| 13 | Batch notify-before-execute ordering | ❌ FAIL⁵ | ✅ PASS | ✅ PASS |
+| 14 | Wrong risk limit in cumulative check | ✅ PASS | ✅ PASS | ✅ PASS |
+| 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS |
+| | **Score (12–15)** | **2/4** | **4/4** | **4/4** |
+| | **Total score** | **12/15** | **12/15** | **13/15** |
 
 ### Notes
 
@@ -34,6 +41,10 @@ Comparing three configurations on the same 11 C++ bug evals:
 ² **Eval 7 qwen3 partial**: qwen3 single-agent said "event type 5 missing in switch" — the actual bug is that `SETTLEMENT_COMPLETED = 3` collides with `case 3: OnTradeSubmitted`. Found the dispatcher but misread the collision direction.
 
 ³ **Eval 9 qwen3 fail**: Single-agent cannot parallelize threads. When the entry point for a cross-layer bug is ambiguous, qwen3 anchors on the wrong file and produces a report for a different bug entirely.
+
+⁴ **Eval 12 multi-agent partial**: Orchestrator wastes steps attempting `cpp-bug-tracer/agents/worker-agent` (non-existent). Abstractor report mentions validation-before-update but hallucinated `TradeValidator.cpp` — never traces `m_mapTradeStore` or the local copy issue. 2/5 assertions pass.
+
+⁵ **Eval 13 multi-agent fail**: Abstractor hallucinated a missing case in `CTradeEventDispatcher.cpp` (file doesn't exist). The actual bug is `NotifyTradeExecuted` called before `ExecuteTrade` in `BatchExecuteTrades`. Step budget exhausted by worker-agent failures before a proper investigation began.
 
 ---
 
@@ -53,6 +64,15 @@ Comparing three configurations on the same 11 C++ bug evals:
 | Eval 3 (ambiguous premise) | ⚠️ Hits max steps chasing red herring | ⚠️ Produces reasonable report quicker |
 
 **Summary**: GLM-5 is stronger at multi-file tracing and produces more precise fix directions. qwen3 is faster and less prone to rabbit holes on simple cases. Multi-agent (qwen3) covers the gap on cross-layer bugs by parallelizing.
+
+### Complex evals reveal multi-agent weakness
+The 4 new complex evals (12–15) expose a structural problem: the orchestrator still attempts the non-existent `worker-agent` before falling back to the abstractor, consuming a large portion of the step budget. On evals 12 and 13, the abstractor received a degraded investigation due to step starvation and produced hallucinated output. Both single-agent configs scored 4/4 on the same evals — demonstrating that for focused, single-file bugs the overhead of orchestration is a net negative.
+
+| Weakness | Multi-agent | Single-agent-qwen3 | Single-agent-glm5 |
+|----------|-------------|-------------------|------------------|
+| Worker-agent step waste | ❌ Still occurs | N/A | N/A |
+| Hallucination under step pressure | ❌ Evals 12, 13 | ✅ None | ✅ None |
+| Cross-layer / multi-file bugs | ✅ Parallelism helps (eval 9) | ❌ Anchors wrong | ✅ Strong tracer |
 
 ### Latency
 | Config | Typical time |
