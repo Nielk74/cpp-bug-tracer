@@ -1,7 +1,7 @@
 ---
 description: C++ code synthesis agent — given findings from multiple investigator threads, synthesizes them into a coherent explanation of the bug's root cause
 mode: all
-model: openrouter/anthropic/claude-haiku-4.5
+model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
 steps: 3
 tools:
   read: false
