@@ -4,7 +4,7 @@ An OpenCode skill for investigating bugs in C++ codebases using coordinated AI a
 
 ## Workflow
 
-![cpp-bug-tracer workflow](https://excalidraw.com/#json=yJWFQfoy0gNHyAkOZspn3,diIr7Re8xOTNaZT5MOOy3Q)
+[View interactive diagram on Excalidraw](https://excalidraw.com/#json=yJWFQfoy0gNHyAkOZspn3,diIr7Re8xOTNaZT5MOOy3Q)
 
 The orchestrator classifies the bug into one of 6 categories, then spawns parallel investigator threads. Each investigator follows a single execution path (read → grep → follow call chain). The orchestrator synthesizes results into a structured root cause report.
 
