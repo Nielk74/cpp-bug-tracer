@@ -41,7 +41,7 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 20 | Rate limit: per-hour config vs per-minute window | ❌ FAIL¹⁰ | ✅ PASS | — |
 | 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — |
 | 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — |
-| 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | 🔄 TBD | — |
+| 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | ✅ PASS | — |
 
 ### Notes
 

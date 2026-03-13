@@ -44,6 +44,7 @@ If a Task call fails with any error → you used the wrong subagent_type. Call `
 |---|---|
 | **Event/notification mismatch** | "handler never fires", "wrong handler called", "wrong state in handler", "notification fires too early/late" |
 | **Counter/metric wrong** | "count is double", "counter always N", "metrics show wrong number" |
+| **Unit/scale mismatch** | "never blocks", "limit not enforced", "always allowed even though configured", "per hour but window", "basis points vs percent", "1-based vs 0-based", "configured X but behaves like Y×100", "threshold ignored" |
 | **ID/key lookup failure** | "not found", "always returns same result", "ID mismatch" |
 | **Conditional behavior** | "only happens for product X", "works for Y but not Z", "only on first load" |
 | **Cross-layer state** | "UI field wrong", "form shows unexpected value", "field disabled unexpectedly" |
@@ -82,6 +83,23 @@ For **operation should fail but doesn't** bugs:
 For **wrong argument / ID mix-up** bugs:
 - Thread A: "Read `<ReleaseFunction>` in `<CallerClass>`. What variable is passed as the argument to `<CalleeFunction>`? What is that variable's meaning — is it a trade ID, reservation ID, or something else? Starting point: `<CallerClass>::<ReleaseFunction>`. Codebase: `<path>`"
 - Thread B: "Read `<CalleeFunction>` in `<CalleeClass>`. What argument does it expect — what type/meaning? What map or lookup does it use? What key does it look for? Starting point: `<CalleeClass>::<CalleeFunction>`. Codebase: `<path>`"
+
+For **unit/scale mismatch** bugs (rate limits, thresholds, numeric scales):
+- Thread A: "Read `<ConfigClass>` — specifically `<SetXMethod>`. What unit is the value stored in (e.g., per-hour, basis points, 1-based index)? What does the stored number mean? Starting point: `<ConfigClass>`. Codebase: `<path>`"
+- Thread B: "Read `<EnforcerClass>` — specifically `<CheckMethod>`. What unit does it assume for the stored value when comparing? What time window or scale factor does it use? Starting point: `<EnforcerClass>`. Codebase: `<path>`"
+
+**Extracting class names from method names in the prompt:**
+If the prompt mentions a method name like `SetRateLimit`, `RegisterApprover`, `WritePosition`, `SetFee`:
+- Strip the verb prefix (Set, Get, Register, Write, Read) to find the subject (RateLimit, Approver, Position, Fee)
+- The config/writer class typically has the Set/Write/Register method: look for `C<Subject>Config`, `C<Subject>Writer`, `C<Subject>Schedule`
+- The checker/reader class has the Check/Read/Can method: look for `C<Subject>Limiter`, `C<Subject>Reader`, `C<Subject>Gate`, `C<Subject>Validator`
+- Use these derived class names as Thread A and Thread B starting points
+
+Examples:
+- Prompt mentions "SetRateLimit" → Thread A: `CTradeRateLimitConfig`, Thread B: `CTradeRateLimiter`
+- Prompt mentions "RegisterApprover" and "SetRequiredLevel" → Thread A: `CTradeApprovalLevelConfig`, Thread B: `CTradeApprovalGate`
+- Prompt mentions "WritePosition" and "ReadPosition" → Thread A: `CTradePositionWriter`, Thread B: `CTradePositionReader`
+- Prompt mentions "SetFee" (schedule) → Thread A: `CTradeFeeSchedule`, Thread B: `CTradeFeeValidator`
 
 For **conditional** or **cross-layer** bugs:
 - Thread A: "Find the branch that handles `<product/condition X>`. Read the condition and what state is read. Starting point: `<RelevantClass>`. Codebase: `<path>`"
