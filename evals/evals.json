@@ -1,0 +1,115 @@
+{
+  "skill_name": "cpp-bug-tracer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Why can't we paste text into the Counterparty field when we select the product Cash Flow but it works for other products? The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces: user selects Cash Flow → ProductSelector::onSelectionChanged() → TradeForm::onProductChanged() → CounterpartyField::onProductChanged() → applyProductRules() → setReadOnly(true). It identifies the bug: setReadOnly(true) blocks paste, and explains the comment in the code about the original intent being setEnabled(false). It produces a call graph and a suggested fix.",
+      "files": [],
+      "assertions": [
+        "The report identifies CounterpartyField::applyProductRules as the location where the field is made read-only for CashFlow",
+        "The report traces the call chain starting from product selection through TradeForm::onProductChanged",
+        "The report identifies that setReadOnly(true) blocks paste operations",
+        "The report includes a suggested fix (e.g. use setEnabled(false) instead or only block paste for CashFlow)",
+        "The report includes a call graph or execution path showing at least 3 steps in the chain"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We're getting a validation error saying 'Notional must be greater than zero' immediately when the trade form opens, before the user has entered anything. This only happens when the form first loads with no product selected. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds TradeValidator::validateNotional, sees that m_product defaults to ProductType::None which is not CashFlow, so the zero notional check fires. It notes that setProduct() is never called before initial validation, and that the fix is to either call setProduct() during form init or skip validation when no product is selected.",
+      "files": [],
+      "assertions": [
+        "The report identifies TradeValidator::validateNotional as the function where the spurious error originates",
+        "The report explains that m_product defaults to ProductType::None when setProduct() has not been called",
+        "The report explains that the CashFlow early-return guard does not protect against the None case",
+        "The report includes at least one concrete suggested fix direction",
+        "The report includes a call graph or execution path showing where validation is triggered"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Why is the Notional Amount field visible when the user selects FX, but not when they select Cash Flow? I would expect both to hide it since neither uses a notional. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds TradeForm::updateFieldVisibility, which explicitly shows Notional for Equity, FixedIncome, Derivative — and FX is not in the list, so it should be hidden. But the question says FX shows the notional, implying FX was accidentally included. Actually the code shows FX is correctly excluded. The interesting finding is that this might be a new product type added later where someone forgot to add it to the exclusion list — or the user is confused about which product maps to which label.",
+      "files": [],
+      "assertions": [
+        "The report identifies TradeForm::updateFieldVisibility as where NotionalWidget visibility is controlled",
+        "The report correctly lists which product types show the notional field (Equity, FixedIncome, Derivative)",
+        "The report confirms that both FX and CashFlow should be hidden per the current code",
+        "The report explains the logic of the boolean showNotional variable"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "When a trade is rejected by the adapter fallback in CCounterpartyService, we're loading the wrong counterparty data instead of the one matching the code we looked up. It seems like we always get the same counterparty back regardless of which code we pass. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces LoadCounterpartyByCode → LoadFromAdapter and finds that GetCounterpartyById(0) is called with a hardcoded 0 instead of a lookup by strCode. This means the adapter always returns whatever counterparty has ID 0, regardless of the requested code. The fix is to look up by code (e.g. GetCounterpartyByCode(strCode)) or translate strCode to an ID before calling GetCounterpartyById.",
+      "files": [],
+      "assertions": [
+        "The report identifies CCounterpartyService::LoadFromAdapter as the location of the bug",
+        "The report identifies that GetCounterpartyById is called with hardcoded 0 instead of a value derived from strCode",
+        "The report traces the call path from LoadCounterpartyByCode through the DB fallback to LoadFromAdapter",
+        "The report explains that the bug causes the wrong counterparty to be returned whenever the DB path fails and the adapter is used",
+        "The report includes at least one concrete suggested fix"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "We have a bug where releasing a credit reservation by its numeric reservation ID always fails with 'Reservation ID not found', even though the reservation was just created and we have the correct ID. Releasing by trade ID string works fine. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces ReserveCredit → GenerateReservationId (which post-increments m_nNextReservationId) → then stores in m_mapReservationIdToTradeId[m_nNextReservationId] (the already-incremented value) instead of [m_nNextReservationId - 1] (the value embedded in the returned string). So the map key is off by one from the ID returned to the caller, making ReleaseCreditReservation(long) always fail to find the reservation.",
+      "files": [],
+      "assertions": [
+        "The report identifies CCreditCheckService::ReserveCredit as the location of the bug",
+        "The report identifies that GenerateReservationId uses post-increment on m_nNextReservationId",
+        "The report identifies that m_mapReservationIdToTradeId is keyed with m_nNextReservationId (post-increment value) rather than m_nNextReservationId - 1 (the ID embedded in the returned string)",
+        "The report traces ReleaseCreditReservation(long) and explains why the lookup fails",
+        "The report includes a suggested fix, e.g. store the reservation ID before the call to GenerateReservationId or use m_nNextReservationId - 1 as the key"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Our trade-validated notification handlers are never being triggered when a trade passes validation. The handlers are registered for NOTIFICATION_TYPE_TRADE_VALIDATED but they never fire. Rejection handlers work fine. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CNotificationService::NotifyTradeValidated and sees that when bIsValid == true, it sends NOTIFICATION_TYPE_TRADE_SUBMITTED instead of NOTIFICATION_TYPE_TRADE_VALIDATED. Handlers registered for NOTIFICATION_TYPE_TRADE_VALIDATED never match, so they never fire. The fix is to use NOTIFICATION_TYPE_TRADE_VALIDATED in the true branch.",
+      "files": [],
+      "assertions": [
+        "The report identifies CNotificationService::NotifyTradeValidated as the location of the bug",
+        "The report identifies that NOTIFICATION_TYPE_TRADE_SUBMITTED is used in the bIsValid == true branch instead of NOTIFICATION_TYPE_TRADE_VALIDATED",
+        "The report explains that handlers registered for NOTIFICATION_TYPE_TRADE_VALIDATED will never be dispatched",
+        "The report traces how SendNotification dispatches via DispatchToHandlers using the type as the lookup key",
+        "The report includes a suggested fix"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "When a settlement completes, our trade submission listeners are firing instead of our settlement completion listeners. We have listeners registered on CTradeEventDispatcher but they're receiving OnTradeSubmitted calls instead of a settlement-specific callback. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CSettlementService::DispatchSettlementEvent which creates a STradeEvent with m_nEventType = 3 for COMPLETED settlements. Then CTradeEventDispatcher::DispatchEvent dispatches event type 3 to OnTradeSubmitted (case 3). So settlement completions incorrectly trigger OnTradeSubmitted on all registered listeners. Settlement failed (4) and cancelled (5) events fall into the default case and trigger nothing. The fix is to use distinct event type values for settlement events (e.g. 10, 11, 12) that don't collide with the trade event types (1=created, 2=validated, 3=submitted), or add new cases to DispatchEvent for settlement events.",
+      "files": [
+        "src/services/CSettlementService.cpp",
+        "src/legacy/CTradeEventDispatcher.cpp"
+      ],
+      "assertions": [
+        "The report identifies CSettlementService::DispatchSettlementEvent as where settlement events are created",
+        "The report identifies that settlement COMPLETED uses event type 3, which collides with the trade SUBMITTED handler in CTradeEventDispatcher::DispatchEvent",
+        "The report reads CTradeEventDispatcher::DispatchEvent and traces case 3 to OnTradeSubmitted",
+        "The report explains that settlement FAILED (4) and CANCELLED (5) events fall into the default case and are silently dropped",
+        "The report includes a suggested fix involving separating settlement event type values from trade event types"
+      ],
+      "weakness_targeted": "multi-file tracing — requires reading both CSettlementService.cpp and CTradeEventDispatcher.cpp and connecting them"
+    },
+    {
+      "id": 8,
+      "prompt": "Our workflow metrics show that m_nTotalWorkflowsStarted is always exactly double what we expect. When we run 10 full trade workflows, the counter shows 20 instead of 10. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent finds CTradeServiceFacade::FullTradeWorkflow which increments m_nTotalWorkflowsStarted++ at line 453, then calls CreateAndValidateTrade which also increments m_nTotalWorkflowsStarted++ at line 119. Every full workflow run triggers two increments. The fix is to remove the increment from FullTradeWorkflow since CreateAndValidateTrade already counts it, or guard one of the increments.",
+      "files": [
+        "src/services/CTradeServiceFacade.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeServiceFacade::FullTradeWorkflow as where the double-counting originates",
+        "The report identifies that FullTradeWorkflow increments m_nTotalWorkflowsStarted directly",
+        "The report identifies that CreateAndValidateTrade (called by FullTradeWorkflow) also increments m_nTotalWorkflowsStarted",
+        "The report explains that every FullTradeWorkflow call triggers two increments of the same counter",
+        "The report includes a suggested fix"
+      ],
+      "weakness_targeted": "careful reading within one file — requires reading two function bodies in CTradeServiceFacade.cpp and noticing the counter is incremented in both the caller and callee"
+    }
+  ]
+}

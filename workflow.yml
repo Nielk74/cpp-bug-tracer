@@ -1,80 +1,257 @@
 name: cpp-bug-tracer
 description: Investigates bugs in C++ codebases using coordinated specialist agents
-version: 1
-max_depth: 4
+version: 2
+max_depth: 2
 
 agents:
-  - name: thinking-agent
-    file: thinking-agent.md
+  - name: orchestrator
+    file: orchestrator.md
+    mode: primary
+    model: ollama/qwen3-coder:30b
+    calls: [investigator, abstractor, explorer, planner]
+
+  - name: investigator
+    file: investigator.md
     mode: subagent
-    model: qwen/qwen3-next-80b-a3b-instruct:free
+    model: ollama/qwen3-coder:30b
     calls: []
 
-  - name: abstraction-agent
-    file: abstraction-agent.md
+  - name: abstractor
+    file: abstractor.md
     mode: subagent
-    model: qwen/qwen3-next-80b-a3b-instruct:free
-    calls: [abstraction-agent, worker-agent]
-    max_recursive_depth: 4
+    model: ollama/qwen3-coder:30b
+    calls: []
 
-  - name: worker-agent
-    file: worker-agent.md
+  - name: explorer
+    file: explorer.md
     mode: subagent
-    model: qwen/qwen3-next-80b-a3b-instruct:free
+    model: ollama/qwen3-coder:30b
+    calls: []
+
+  - name: planner
+    file: planner.md
+    mode: subagent
+    model: ollama/qwen3-coder:30b
     calls: []
 
 mock_responses:
-  thinking-agent:
-    - trigger: ".*"
+  investigator:
+    # --- Event/notification sender thread (eval 6: notification type, eval 7: settlement event) ---
+    - trigger: ".*sender.*event.*|.*what.*send.*|.*DispatchSettlement.*|.*NotifyTradeValidated.*"
       response: |
-        ## Key Questions
-        1. Where is the trade validation logic?
-        2. How are product types registered and looked up?
-        3. What happens when an unregistered product type is validated?
+        ## Question answered
+        What event type / value does the sender pass when dispatching this event?
 
-        ## Proposed Decomposition
-        - Thread A: TradeValidator class and validation flow
-        - Thread B: Product type registration system
-        - Thread C: Error handling in validation
-
-        ## Scope
-        - In scope: Validation logic, product type handling
-        - Out of scope: UI layer, database layer, logging
-
-  abstraction-agent:
-    - trigger: ".*"
-      response: |
-        ## Thread: TradeValidator investigation
-        
-        ### Findings
-        - TradeValidator.cpp:122 — validate() method entry point
-        - TradeValidator.cpp:309 — validateProductSpecific() crashes on unregistered types
-        
-        ### Connections
-        validate() calls validateProductSpecific() which dereferences null for unknown types
-        
-        ### Gaps
-        Need to check ProductFactory/createValidator implementation
-        
-        ### Suspicious items
-        No null check before dereferencing validator pointer
-
-  worker-agent:
-    - trigger: ".*"
-      response: |
         ## Answer
-        The validateProductSpecific method at line 309 calls createValidator() which returns 
-        nullptr for unregistered product types, then dereferences it without checking.
-        
-        ## Key code locations
-        | File | Line | What |
-        |------|------|------|
-        | TradeValidator.cpp | 309 | validateProductSpecific entry |
-        | TradeValidator.cpp | 310 | createValidator() call |
-        | TradeValidator.cpp | 311 | Null dereference crash |
-        
-        ## Related symbols
-        - createValidator — factory that returns null for unknown types
-        
-        ## Surprising/suspicious?
-        No null check after factory call — assumes all product types are registered.
+        CSettlementService::DispatchSettlementEvent passes m_nEventType = 3 for a COMPLETED settlement
+        (line 259). CNotificationService::NotifyTradeValidated sends NOTIFICATION_TYPE_TRADE_SUBMITTED
+        (not NOTIFICATION_TYPE_TRADE_VALIDATED) when bIsValid == true (line ~45).
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CSettlementService.cpp | 259 | DispatchSettlementEvent(record, 3) for COMPLETED |
+        | src/services/CNotificationService.cpp | ~45 | SendNotification(NOTIFICATION_TYPE_TRADE_SUBMITTED, ...) in the bIsValid==true branch |
+
+        ## Chain traced
+        ProcessSettlement → UpdateSettlementStatus(COMPLETED) → DispatchSettlementEvent(record, 3)
+        ValidateTrade(bIsValid=true) → NotifyTradeValidated → SendNotification(NOTIFICATION_TYPE_TRADE_SUBMITTED)
+
+        ## Key value tracked
+        Settlement COMPLETED sends event type 3. Notification for valid trade sends NOTIFICATION_TYPE_TRADE_SUBMITTED.
+
+        ## Suspicious items
+        Event type 3 is the same integer used for trade submission events. NOTIFICATION_TYPE_TRADE_SUBMITTED is used where NOTIFICATION_TYPE_TRADE_VALIDATED was expected.
+
+        ## Suggested next lookups
+        CTradeEventDispatcher::DispatchEvent to see what case 3 maps to.
+        CNotificationService::DispatchToHandlers to see how type is used as lookup key.
+
+    # --- Event/notification receiver thread (eval 6, eval 7) ---
+    - trigger: ".*receiver.*|.*DispatchEvent.*|.*DispatchToHandlers.*|.*case 3.*|.*handler.*"
+      response: |
+        ## Question answered
+        What does the receiver do when it gets event type 3 / NOTIFICATION_TYPE_TRADE_SUBMITTED?
+
+        ## Answer
+        CTradeEventDispatcher::DispatchEvent dispatches event type 3 to OnTradeSubmitted on all listeners
+        (case 3, line ~145). CNotificationService::DispatchToHandlers uses the notification type as a map
+        lookup key — only handlers registered for that exact type receive the call.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/legacy/CTradeEventDispatcher.cpp | ~145 | case 3: pListener->OnTradeSubmitted(...) |
+        | src/services/CNotificationService.cpp | ~80 | m_mapHandlers[nType] lookup — type must match exactly |
+
+        ## Chain traced
+        DispatchEvent(event) → switch(event.m_nEventType) → case 3: OnTradeSubmitted
+        DispatchToHandlers(NOTIFICATION_TYPE_TRADE_SUBMITTED) → finds handlers for SUBMITTED, not VALIDATED
+
+        ## Key value tracked
+        Type 3 → OnTradeSubmitted. Handlers for NOTIFICATION_TYPE_TRADE_VALIDATED never matched when
+        NOTIFICATION_TYPE_TRADE_SUBMITTED is sent instead.
+
+        ## Suspicious items
+        Settlement events (types 4=FAILED, 5=CANCELLED) fall into default case — silently dropped.
+
+        ## Suggested next lookups
+        Nothing further needed — root cause is confirmed.
+
+    # --- Counter/metric all-increments thread (eval 8: double workflow counter) ---
+    - trigger: ".*counter.*|.*increment.*|.*TotalWorkflows.*|.*double.*count.*|.*metric.*"
+      response: |
+        ## Question answered
+        Find every place m_nTotalWorkflowsStarted is incremented in the codebase.
+
+        ## Answer
+        m_nTotalWorkflowsStarted++ appears in TWO functions: FullTradeWorkflow (line 453) and
+        CreateAndValidateTrade (line 119). Since FullTradeWorkflow calls CreateAndValidateTrade,
+        every full workflow run increments the counter twice.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CTradeServiceFacade.cpp | 453 | m_nTotalWorkflowsStarted++ in FullTradeWorkflow |
+        | src/services/CTradeServiceFacade.cpp | 119 | m_nTotalWorkflowsStarted++ in CreateAndValidateTrade |
+
+        ## Chain traced
+        FullTradeWorkflow:453 → m_nTotalWorkflowsStarted++ → calls CreateAndValidateTrade:119 → m_nTotalWorkflowsStarted++ again
+
+        ## Key value tracked
+        Counter incremented at two levels of the same call chain — caller and callee both increment.
+
+        ## Suspicious items
+        FullTradeWorkflow also increments m_nTotalWorkflowsFailed and m_nTotalWorkflowsCompleted directly, which CreateAndValidateTrade ALSO increments. Potentially triple-counting failures too.
+
+        ## Suggested next lookups
+        Check whether m_nTotalWorkflowsFailed and m_nTotalWorkflowsCompleted have the same double-increment issue.
+
+    # --- ID generation and storage thread (eval 5: off-by-one reservation ID) ---
+    - trigger: ".*GenerateReservation.*|.*ReserveCredit.*|.*reservation.*generat.*|.*map.*key.*reserv.*"
+      response: |
+        ## Question answered
+        How is the reservation ID generated and stored in the map?
+
+        ## Answer
+        CCreditCheckService::ReserveCredit calls GenerateReservationId() which returns
+        m_nNextReservationId++ (post-increment: returns N, then N becomes N+1). The returned value N
+        is embedded in the reservation string. But the map is then keyed with m_nNextReservationId
+        (now already N+1). So the map key is always off by one from the ID embedded in the string.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CCreditCheckService.cpp | ~60 | long nId = GenerateReservationId() — returns N (pre-increment) |
+        | src/services/CCreditCheckService.cpp | ~62 | ss << "RES_" << nId — string embeds N |
+        | src/services/CCreditCheckService.cpp | ~65 | m_mapReservationIdToTradeId[m_nNextReservationId] — key is N+1 |
+        | src/services/CCreditCheckService.cpp | ~90 | GenerateReservationId(): return m_nNextReservationId++ |
+
+        ## Chain traced
+        ReserveCredit → GenerateReservationId() returns N, m_nNextReservationId becomes N+1 →
+        string "RES_..._N" returned to caller → map stored at key N+1 →
+        ReleaseCreditReservation(N) → map.find(N) → not found (key is N+1)
+
+        ## Key value tracked
+        Post-increment: GenerateReservationId returns N, but m_nNextReservationId is already N+1 when
+        the map insertion happens. Off-by-one between the returned ID and the stored key.
+
+        ## Suspicious items
+        m_nNextReservationId is used as the map key AFTER the post-increment — it now holds a value
+        one higher than what was returned to the caller.
+
+        ## Suggested next lookups
+        CCreditCheckService::ReleaseCreditReservation(long) to confirm the lookup fails with key N.
+
+    # --- Generic cross-layer trace (eval 1, 4) ---
+    - trigger: ".*adapter.*|.*LoadCounterparty.*|.*hardcoded.*|.*always.*same.*counterparty.*"
+      response: |
+        ## Question answered
+        Why does CCounterpartyService::LoadFromAdapter always return the same counterparty?
+
+        ## Answer
+        CCounterpartyService::LoadFromAdapter calls GetCounterpartyById(0) with a hardcoded 0 instead
+        of looking up by strCode. Every call returns whatever counterparty has ID 0 in the adapter,
+        regardless of the input code.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CCounterpartyService.cpp | ~80 | GetCounterpartyById(0) — hardcoded 0, not derived from strCode |
+
+        ## Chain traced
+        LoadCounterpartyByCode(strCode) → DB lookup fails → LoadFromAdapter(strCode) →
+        m_pAdapter->GetCounterpartyById(0) [hardcoded] → always returns ID-0 counterparty
+
+        ## Key value tracked
+        strCode is passed into LoadFromAdapter but never used — the adapter call ignores it entirely.
+
+        ## Suspicious items
+        GetCounterpartyById(0) — the 0 should be a translated or looked-up ID derived from strCode.
+
+        ## Suggested next lookups
+        CCounterpartyAdapter::GetCounterpartyById to confirm it returns null or ID-0 record.
+
+    # --- Catch-all ---
+    - trigger: ".*"
+      response: |
+        ## Question answered
+        Investigating the requested execution thread.
+
+        ## Answer
+        Found the relevant function. The implementation contains one suspicious pattern noted below.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/core/TradeValidator.cpp | ~85 | validateNotional checks m_product == CashFlow to skip — but default is None, not CashFlow |
+
+        ## Chain traced
+        TradeForm constructor → validates with uninitialized product (None) → validateNotional →
+        CashFlow guard doesn't match None → zero notional check fires
+
+        ## Key value tracked
+        m_product defaults to ProductType::None. The CashFlow guard only skips validation for CashFlow,
+        not for None/unset state.
+
+        ## Suspicious items
+        No guard for ProductType::None — only CashFlow is protected from the notional check.
+
+        ## Suggested next lookups
+        TradeForm::initializeForm to confirm setProduct() is not called before first validation.
+
+  abstractor:
+    - trigger: ".*"
+      response: |
+        SYNTHESIS:
+        - Thread connections: The sending side passes a numeric event type or enum constant that the receiving side dispatches using that value as a switch/map key. When the wrong constant is used on the sending side, all handlers on the receiving side for the correct type are bypassed.
+        - Root cause: The sender uses type/constant X where type/constant Y was intended — the receiver never sees Y, so Y-handlers never fire.
+        - Why this explains the symptom: Handlers registered for the correct type never match; handlers for the wrong type fire unexpectedly.
+
+        CONFIDENCE: HIGH
+        GAPS: None — both send and receive paths confirmed.
+
+  explorer:
+    - trigger: ".*"
+      response: |
+        STRUCTURE:
+        - src/ui/ — UI layer (TradeForm, CounterpartyField, ProductSelector, NotionalWidget)
+        - src/services/ — service layer (CCounterpartyService, CCreditCheckService, CNotificationService, CSettlementService, CTradeLifecycleService, CTradeServiceFacade)
+        - src/legacy/ — legacy adapters (CCounterpartyAdapter, CValidationRuleEngine, CTradeEventDispatcher)
+        - src/core/ — core logic (TradeValidator)
+        - include/ — headers mirroring src/ layout
+
+        SYMBOL LOCATIONS:
+        - src/services/CSettlementService.cpp — DispatchSettlementEvent, settlement event types
+        - src/legacy/CTradeEventDispatcher.cpp — DispatchEvent switch, listener callbacks
+        - src/services/CNotificationService.cpp — NotifyTradeValidated, SendNotification, DispatchToHandlers
+        - src/services/CCreditCheckService.cpp — ReserveCredit, GenerateReservationId, ReleaseCreditReservation
+        - src/services/CTradeServiceFacade.cpp — FullTradeWorkflow, CreateAndValidateTrade, m_nTotalWorkflowsStarted
+        - src/services/CCounterpartyService.cpp — LoadCounterpartyByCode, LoadFromAdapter
+
+        RELEVANT FILES (by bug category):
+        1. Event/notification bugs → src/services/CNotificationService.cpp + src/legacy/CTradeEventDispatcher.cpp
+        2. Settlement event bugs → src/services/CSettlementService.cpp + src/legacy/CTradeEventDispatcher.cpp
+        3. Counter/metric bugs → src/services/CTradeServiceFacade.cpp
+        4. Reservation ID bugs → src/services/CCreditCheckService.cpp
+        5. Counterparty lookup bugs → src/services/CCounterpartyService.cpp
