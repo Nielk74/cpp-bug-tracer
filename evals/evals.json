@@ -110,6 +110,59 @@
         "The report includes a suggested fix"
       ],
       "weakness_targeted": "careful reading within one file — requires reading two function bodies in CTradeServiceFacade.cpp and noticing the counter is incremented in both the caller and callee"
+    },
+    {
+      "id": 9,
+      "prompt": "We've found a serious bug: a fully settled trade can be settled again without any error. The second call to the settlement flow succeeds and produces a second settlement record for the same trade. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces CTradeServiceFacade::SettleAndNotify which sets context.m_eCurrentState = Settled on its local SFullTradeContext but never calls m_pLifecycleService to update the trade's lifecycle state. CTradeLifecycleService still stores the trade as Executed. On the second settlement call, CSettlementService::ScheduleSettlement calls ValidateTradeForSettlement which calls IsTradeSettleable which calls m_pTradeLifecycleService->GetTradeState — it returns Executed, bSettleable = (state == Executed) = true, so the second settlement is allowed.",
+      "files": [
+        "src/services/CTradeServiceFacade.cpp",
+        "src/services/CSettlementService.cpp",
+        "src/services/CTradeLifecycleService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeServiceFacade::SettleAndNotify as the location of the root cause",
+        "The report identifies that context.m_eCurrentState = Settled is set only on the local SFullTradeContext, not in CTradeLifecycleService",
+        "The report traces that CSettlementService::ValidateTradeForSettlement calls IsTradeSettleable which calls GetTradeState on the lifecycle service",
+        "The report explains that CTradeLifecycleService::GetTradeState still returns Executed because the lifecycle state was never updated to Settled",
+        "The report includes a suggested fix involving calling the lifecycle service to record the Settled state transition after settlement succeeds"
+      ],
+      "weakness_targeted": "cross-layer state — facade updates its own context but does not propagate the state change to the lifecycle service; requires tracing 5 hops across 3 files"
+    },
+    {
+      "id": 10,
+      "prompt": "Trades for counterparties who have exceeded their credit limit are being accepted and validated instead of rejected. The credit limit check appears to run but has no effect. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces CreateAndValidateTrade → ValidateTrade → ValidateTradeInternal → CheckCreditLimit. In CCreditCheckService::CheckCreditLimit, when the new exposure exceeds the credit limit, the function returns ServiceResult<bool>::Success(false) instead of Failure. Back in ValidateTradeInternal, only IsFailure() is checked — because Success(false) is not a failure, the check passes and the trade is validated regardless of the credit limit.",
+      "files": [
+        "src/services/CTradeServiceFacade.cpp",
+        "src/services/CTradeLifecycleService.cpp",
+        "src/services/CCreditCheckService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CCreditCheckService::CheckCreditLimit as the location of the bug",
+        "The report identifies that CheckCreditLimit returns ServiceResult<bool>::Success(false) instead of Failure when the credit limit is exceeded",
+        "The report identifies that CTradeLifecycleService::ValidateTradeInternal checks only creditResult.IsFailure() and never checks creditResult.GetValue()",
+        "The report traces the call chain from CreateAndValidateTrade through ValidateTrade through ValidateTradeInternal to CheckCreditLimit",
+        "The report explains that Success(false) passes the IsFailure() guard, allowing over-limit trades to be validated"
+      ],
+      "weakness_targeted": "ServiceResult misuse — requires understanding that IsFailure() and GetValue() are separate concerns; the bug is at the boundary between two files across 4 hops"
+    },
+    {
+      "id": 11,
+      "prompt": "After we cancel a trade, subsequent trades for the same counterparty keep hitting the credit limit even though the cancelled trade's credit reservation should have been freed. The credit is never released back. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "The agent traces CancelTrade → ReleaseCreditForTrade in CTradeLifecycleService. ReleaseCreditForTrade calls m_pCreditCheckService->ReleaseCreditReservation(refData.m_strCreditReservationId) — passing the reservation ID string instead of the trade ID string. CCreditCheckService::ReleaseCreditReservation(const string&) looks up by trade ID in m_mapCreditReservations, so the lookup always fails (NOT_FOUND). Because the release fails, m_mapCounterpartyReservedTotals is never decremented, so the counterparty's reserved total remains inflated after cancellation.",
+      "files": [
+        "src/services/CTradeLifecycleService.cpp",
+        "src/services/CCreditCheckService.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeLifecycleService::ReleaseCreditForTrade as the location of the bug",
+        "The report identifies that ReleaseCreditReservation is called with refData.m_strCreditReservationId (reservation ID) instead of refData.m_strTradeId (trade ID)",
+        "The report traces CCreditCheckService::ReleaseCreditReservation(const string&) and explains that it looks up by trade ID in m_mapCreditReservations, not by reservation ID",
+        "The report explains that because the lookup always fails, m_mapCounterpartyReservedTotals is never decremented",
+        "The report includes a suggested fix: pass refData.m_strTradeId to ReleaseCreditReservation"
+      ],
+      "weakness_targeted": "wrong-argument bug — a meaningful variable (reservation ID) is passed where a different meaningful variable (trade ID) is expected; requires tracing through the credit service's data structures across 4 hops"
     }
   ]
 }

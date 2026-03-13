@@ -706,8 +706,11 @@ bool CTradeLifecycleService::ReleaseCreditForTrade(STradeLifecycleData& refData)
         return true;
     }
     
-    ServiceResult<bool> releaseResult = 
-        m_pCreditCheckService->ReleaseCreditReservation(refData.m_strTradeId);
+    // BUG: passes reservation ID string instead of trade ID string —
+    // ReleaseCreditReservation(const string&) looks up by trade ID in m_mapCreditReservations,
+    // so this lookup always fails and the counterparty reserved total is never decremented
+    ServiceResult<bool> releaseResult =
+        m_pCreditCheckService->ReleaseCreditReservation(refData.m_strCreditReservationId);
     
     if (releaseResult.IsSuccess()) {
         refData.m_bCreditReserved = false;

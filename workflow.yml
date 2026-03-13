@@ -163,6 +163,126 @@ mock_responses:
         ## Suggested next lookups
         CCreditCheckService::ReleaseCreditReservation(long) to confirm the lookup fails with key N.
 
+    # --- Double-settlement: facade state vs lifecycle state (eval 9) ---
+    - trigger: ".*SettleAndNotify.*|.*double.*settle.*|.*settle.*twice.*|.*lifecycle.*settle.*state.*"
+      response: |
+        ## Question answered
+        Does CTradeServiceFacade::SettleAndNotify update the lifecycle service state to Settled?
+
+        ## Answer
+        No. SettleAndNotify calls ScheduleSettlement and ProcessSettlement, then sets
+        context.m_eCurrentState = TradeLifecycleState::Settled on its LOCAL SFullTradeContext
+        object (line 427) and calls StoreTradeContext(context). It never calls
+        m_pLifecycleService to record a state transition. CTradeLifecycleService still stores
+        the trade as Executed.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CTradeServiceFacade.cpp | 427 | context.m_eCurrentState = TradeLifecycleState::Settled — local context only |
+        | src/services/CTradeServiceFacade.cpp | 435 | StoreTradeContext(context) — stores facade context, not lifecycle state |
+        | src/services/CSettlementService.cpp | 161 | ValidateTradeForSettlement(strTradeId) — called on every ScheduleSettlement |
+        | src/services/CSettlementService.cpp | 530-537 | ValidateTradeForSettlement → IsTradeSettleable → GetTradeState |
+        | src/services/CSettlementService.cpp | 434 | bSettleable = (stateResult.GetValue() == TradeLifecycleState::Executed) |
+        | src/services/CTradeLifecycleService.cpp | 500-509 | GetTradeState returns tradeData.m_eCurrentState from m_mapTradeStore — still Executed |
+
+        ## Chain traced
+        SettleAndNotify:427 → context.m_eCurrentState = Settled (local only) →
+        2nd SettleAndNotify → ScheduleSettlement → ValidateTradeForSettlement →
+        IsTradeSettleable → GetTradeState → returns Executed → bSettleable = true → settles again
+
+        ## Key value tracked
+        CTradeLifecycleService::m_mapTradeStore still holds state=Executed after settlement.
+        The facade's SFullTradeContext is a separate copy — updating it does not update the lifecycle store.
+
+        ## Suspicious items
+        SettleAndNotify never calls m_pLifecycleService after successful settlement. The lifecycle
+        state transition to Settled is missing entirely from this code path.
+
+        ## Suggested next lookups
+        Check CTradeLifecycleService for a RecordSettlement or SetTradeSettled method
+        that SettleAndNotify should be calling.
+
+    # --- Credit bypass: CheckCreditLimit Success(false) not GetValue() checked (eval 10) ---
+    - trigger: ".*CheckCreditLimit.*|.*credit.*bypass.*|.*credit.*limit.*bypass.*|.*Success.*false.*credit.*|.*IsFailure.*credit.*"
+      response: |
+        ## Question answered
+        What does CCreditCheckService::CheckCreditLimit return when the credit limit is exceeded,
+        and how does ValidateTradeInternal handle that result?
+
+        ## Answer
+        CCreditCheckService::CheckCreditLimit returns ServiceResult<bool>::Success(false) when
+        the limit is exceeded (line ~138) — NOT Failure. CTradeLifecycleService::ValidateTradeInternal
+        only checks creditResult.IsFailure() (line 665). Because Success(false) is not a failure,
+        the check passes, bIsValid remains true, and the trade is validated regardless.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CCreditCheckService.cpp | ~130-140 | dNewExposure > limits.m_dCreditLimit → return ServiceResult<bool>::Success(false) |
+        | src/services/CTradeLifecycleService.cpp | 661-668 | creditResult.IsFailure() check only — GetValue() never read |
+
+        ## Chain traced
+        CreateAndValidateTrade → ValidateTrade → ValidateTradeInternal →
+        CheckCreditLimit returns Success(false) →
+        IsFailure() = false → validation error not set → bIsValid = true → Validated
+
+        ## Key value tracked
+        ServiceResult<bool>::Success(false): IsSuccess()=true, IsFailure()=false, GetValue()=false.
+        ValidateTradeInternal sees IsFailure()=false and proceeds. The false value is silently discarded.
+
+        ## Suspicious items
+        Pattern B analog: Success(false) is the ServiceResult equivalent of a post-increment mismatch —
+        the call succeeds at the transport level but carries a false payload that is never inspected.
+        ValidateTradeInternal trusts IsFailure() exclusively; it should also check !creditResult.GetValue().
+
+        ## Suggested next lookups
+        Confirm that CheckCreditLimit previously returned Failure for over-limit cases
+        by checking git history or comparing with the long-overload variant.
+
+    # --- Stale credit: wrong argument to ReleaseCreditReservation (eval 11) ---
+    - trigger: ".*ReleaseCreditForTrade.*|.*ReleaseCreditReservation.*|.*stale.*credit.*|.*cancel.*credit.*|.*reservation.*not.*released.*"
+      response: |
+        ## Question answered
+        How does CTradeLifecycleService::ReleaseCreditForTrade release the credit reservation,
+        and why does the counterparty reserved total remain after cancellation?
+
+        ## Answer
+        ReleaseCreditForTrade calls m_pCreditCheckService->ReleaseCreditReservation(
+        refData.m_strCreditReservationId) — passing the reservation ID string (e.g. "RES_..._5")
+        instead of refData.m_strTradeId. CCreditCheckService::ReleaseCreditReservation(const string&)
+        looks up by trade ID in m_mapCreditReservations. The reservation ID is never a key in that
+        map, so the lookup returns NOT_FOUND, the function returns Failure, and
+        m_mapCounterpartyReservedTotals is never decremented.
+
+        ## Evidence
+        | File | Line | What it shows |
+        |------|------|---------------|
+        | src/services/CTradeLifecycleService.cpp | ~710 | ReleaseCreditReservation(refData.m_strCreditReservationId) — wrong argument |
+        | src/services/CCreditCheckService.cpp | ~295-305 | ReleaseCreditReservation(const string& strTradeId): m_mapCreditReservations.find(strTradeId) |
+        | src/services/CCreditCheckService.cpp | ~312-318 | m_mapCounterpartyReservedTotals decrement — only reached if lookup succeeds |
+
+        ## Chain traced
+        CancelTrade → ReleaseCreditForTrade →
+        ReleaseCreditReservation("RES_..._N") [wrong: should be strTradeId] →
+        m_mapCreditReservations.find("RES_..._N") → NOT FOUND →
+        returns Failure → m_mapCounterpartyReservedTotals never decremented →
+        stale reserved total persists → future CheckCreditLimit counts cancelled trade's amount
+
+        ## Key value tracked
+        m_strCreditReservationId = "RES_<timestamp>_N" (format from GenerateReservationId)
+        m_mapCreditReservations is keyed by trade ID (e.g. "TRD_<timestamp>_1")
+        These are different strings — the lookup always fails.
+
+        ## Suspicious items
+        refData.m_strCreditReservationId is populated by ReserveCreditForTrade (correct).
+        But ReleaseCreditForTrade should pass refData.m_strTradeId, not the reservation ID.
+        The reservation ID is only meaningful for the long-overload: ReleaseCreditReservation(long).
+
+        ## Suggested next lookups
+        Confirm refData.m_strTradeId is the correct key by reading the ReserveCredit call in
+        CCreditCheckService and noting what key is used in m_mapCreditReservations.
+
     # --- Generic cross-layer trace (eval 1, 4) ---
     - trigger: ".*adapter.*|.*LoadCounterparty.*|.*hardcoded.*|.*always.*same.*counterparty.*"
       response: |

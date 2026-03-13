@@ -135,9 +135,9 @@ ServiceResult<bool> CCreditCheckService::CheckCreditLimit(const std::string& str
            << ", Requested: " << dAmount;
         LOG_WARNING(ss.str().c_str());
         
-        return ServiceResult<bool>::Failure(
-            SERVICES_ERRORCODE_CREDIT_LIMIT_EXCEEDED,
-            ss.str());
+        // BUG: returns Success(false) instead of Failure — callers checking only IsFailure()
+        // will not detect that the limit is exceeded
+        return ServiceResult<bool>::Success(false);
     }
     
     std::stringstream ss;
