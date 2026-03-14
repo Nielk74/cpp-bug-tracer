@@ -397,6 +397,40 @@
         "The report suggests a fix: remove normalization before comparison or multiply normalized value back to absolute USD"
       ],
       "weakness_targeted": "three-file unit mismatch: Normalizer (millions) + LimitConfig (absolute USD) + Checker (compares directly). Each file looks internally correct. Bug requires reading all three and tracing how the value flows from Normalizer through Checker against LimitConfig. Single-agent may read Checker and see a correct comparison, then read Normalizer and see reasonable division — without reading LimitConfig it cannot know the limit is in a different unit."
+    },
+    {
+      "id": 26,
+      "prompt": "After trades pass through our message routing system, the counterparty code and notional amount values are swapped. A trade submitted with counterparty CPTY_001 and notional 50000000 comes out on the receiving end with counterparty 50000000 and notional 0. The encoder and decoder are separate components that both use the shared message bus. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeMessageEncoder serializes fields as: tradeId|cptyCode|notional|currency (cptyCode at index 1, notional at index 2). CTradeMessageDecoder deserializes expecting: tradeId|notional|cptyCode|currency (notional at index 1, cptyCode at index 2). Fields 1 and 2 are swapped. Neither service calls the other — both only use CTradeMessageBus. After encode→decode, m_strCptyCode gets the notional string and m_dNotional gets atof(cptyCode)=0.0. Fix: align field positions — both must use the same ordering.",
+      "files": [
+        "src/services/CTradeMessageEncoder.cpp",
+        "src/services/CTradeMessageDecoder.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeMessageEncoder as writing cptyCode at field index 1 and notional at field index 2",
+        "The report identifies CTradeMessageDecoder as reading field index 1 as notional and field index 2 as cptyCode",
+        "The report explains that fields 1 and 2 are swapped between the encoder and decoder",
+        "The report explains the consequence: notional becomes cptyCode and cptyCode becomes notional after decode",
+        "The report suggests fixing the field ordering to be consistent between encoder and decoder"
+      ],
+      "weakness_targeted": "implicit protocol contract: two independent services must agree on field positions in a pipe-delimited wire format. No shared schema file. Neither service calls the other. Bug is invisible from any single file — each file's field assignments look like a valid choice. Only by reading both and lining up their index arrays side by side does the swap become visible."
+    },
+    {
+      "id": 27,
+      "prompt": "Trades that have been completely filled are stuck in pending state forever and never advance to complete. We have verified that all fills are being recorded correctly and the cumulative filled quantity equals the original order quantity. The fill recorder and completion checker are separate services. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradePartialFillRecorder::RecordFill writes key '<tradeId>:remaining' = remaining quantity ONLY when remaining > 0 (partial fills). On the final fill (remaining == 0) it writes NOTHING. CTradeFillCompletionChecker::IsFullyFilled returns true only when key '<tradeId>:remaining' EXISTS AND equals 0.0. On final fill, the key is absent (recorder wrote nothing), so IsFullyFilled returns false. Trade is stuck in pending forever. Fix: write '<tradeId>:remaining' = 0.0 explicitly in RecordFill when remaining == 0.",
+      "files": [
+        "src/services/CTradePartialFillRecorder.cpp",
+        "src/services/CTradeFillCompletionChecker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradePartialFillRecorder::RecordFill as the location of the missing write",
+        "The report identifies that RecordFill only writes the ':remaining' key when remaining > 0, not when remaining == 0",
+        "The report identifies that CTradeFillCompletionChecker::IsFullyFilled requires the key to EXIST with value 0.0",
+        "The report explains that on final fill the key is absent so IsFullyFilled always returns false",
+        "The report suggests the fix: write ':remaining' = 0.0 explicitly when dRemaining == 0 in RecordFill"
+      ],
+      "weakness_targeted": "implicit protocol contract between two independent services. The contract 'write 0 on completion' is assumed by the checker but never enforced by the recorder. Each file looks internally self-consistent. The checker's logic is correct given its assumption; the recorder's logic is correct given its assumption. Bug is the gap between the two assumptions — visible only by reading both and comparing what each writes vs what each expects to find."
     }
   ]
 }
