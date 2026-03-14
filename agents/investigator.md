@@ -107,7 +107,8 @@ Examples:
 
 **Common chains that hide bugs:**
 - Registry string → `ParseInt`/`stoi` → consumer: `std::stoi("1,000")` **silently returns `1`** (stops at the comma, no exception thrown — this is defined C++ behavior). On Windows locales where thousands separator is comma, "1000" is stored as "1,000". The parsed result is 1, not 1000.
-- `std::stoi` / `std::stoul` / `atoi`: these functions stop at the **first non-numeric character** and return the partial integer. They do NOT throw for locale-formatted strings like "1,000". `std::stoi("1,000") == 1`. If the raw input is "1,000" and the consumer expected 1000, the bug is silent truncation, not an exception.
+- Scientific notation string → `ParseInt`/`stoi` → consumer: `std::stoi("1e3")` **silently returns `1`** (stops at the 'e', no exception thrown — this is defined C++ behavior). The string "1e3" means 1000 in scientific notation but std::stoi only parses the leading digit. Similarly, `std::stoi("2e5")` returns 2, `std::stoi("1.5e2")` returns 1.
+- `std::stoi` / `std::stoul` / `atoi`: these functions stop at the **first non-numeric character** and return the partial integer. They do NOT throw for locale-formatted strings like "1,000" or scientific notation like "1e3". `std::stoi("1,000") == 1`, `std::stoi("1e3") == 1`. If the raw input is "1,000" or "1e3" and the consumer expected 1000, the bug is silent truncation, not an exception.
 - Env var → `atoi`/`strtol` → config field: locale decimal separator causes truncation
 - Config file line → `sscanf` → struct field: format mismatch silently writes 0
 - Mapped value → wrong key → default/zero: map lookup returns default when key is wrong type
