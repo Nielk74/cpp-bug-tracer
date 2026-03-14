@@ -27,16 +27,24 @@ You receive:
 
 ## Process
 
-1. **Find the starting point**: grep for the symbol if no file path given. Pick the `.cpp` implementation file, not the header.
+1. **Find the starting point**: if the starting point is a class name, use glob `**/<ClassName>.cpp` to find the implementation file directly (see Pattern E). Otherwise grep for the symbol. Always prefer `.cpp` over `.h` files.
 2. **Read the function body**: do not draw conclusions from grep snippets — read the actual function in full.
 3. **Follow the chain**: if the function calls another relevant function, grep for it and read its body too.
 4. **Stop when you have the answer** — do not explore tangents.
 
-You may call grep up to 4 times and read up to 5 files. Stop as soon as you can answer the question.
+You may call grep up to 6 times and read up to 7 files. Stop as soon as you can answer the question. If you are applying Pattern G (backward value tracing), you may use the full budget to follow the chain to its origin — do not stop at the consumer.
 
 ## Special investigation patterns
 
 Apply these when relevant:
+
+### Pattern E — Finding a class implementation file
+When your starting point is a class name (e.g., `CTradePositionWriter`) and no file path is given:
+1. **Use glob first**: search `**/<ClassName>.cpp` — this finds the implementation file directly without hitting headers
+2. Read that `.cpp` file in full
+3. Do NOT read `.h` files as your primary source — headers only have declarations, not the logic you need
+
+Example: starting point `CTradePositionWriter` → glob `**/CTradePositionWriter.cpp` → read the result directly.
 
 ### Pattern A — Numeric constant passed between files
 If you find a numeric literal (e.g., `nEventType = 3`) being passed to another class's function:
@@ -69,27 +77,46 @@ When a bug is "only happens on first load" or "only before X is called":
 - Find where it's supposed to be set (the setter call)
 - Confirm whether the setter is actually called before the code that reads it
 
-### Pattern E — Switch/enum controlling visibility or behavior
-When you find a `switch` (or `if/else if` chain) that maps an enum or product type to a boolean or behavior:
-- **Enumerate ALL cases** — both the true branch and the false branch
-- Do not only report the cases mentioned in the question; list every case in the switch, grouped by outcome
-- Example: if asked "why is field X hidden for CashFlow", do not only say "CashFlow → hidden". List EVERY product type and whether it shows or hides the field:
-  - `Equity, FixedIncome, Derivative, Swap, Forward, Option, Future → bShow = true`
-  - `FX, CashFlow, Repo, SecLoan → bShow = false`
-  - `default → bShow = true`
-- **This applies even if the user's premise turns out to be wrong** — enumerate the full switch so the abstractor can compare the code against the reported symptom
-- Flag in Suspicious items if the user's premise contradicts what you found in the code (e.g. "user says FX is visible but code sets bShowNotional=false for FX")
+### Pattern F — Getter unit verification in arithmetic ⚠️ MANDATORY
+**Trigger**: you see a getter used in arithmetic: `GetXxx() / 100.0`, `GetXxx() * factor`, `GetXxx() / 10000.0`, `GetXxx() < someValue`
 
-### Pattern F — Wrong argument passed to a function
-When a function call passes a variable and the bug might be "wrong argument":
-1. Read the caller function in full — find the exact call site and what variable is passed
-2. **Grep for the callee function name** — find its actual `.cpp` file (do not guess the filename)
-3. Read the callee function body — what is the parameter used for? What map/lookup key does it use?
-4. Compare: is the passed variable the same concept the callee expects, or a different (but similarly named) identifier?
-5. Common pattern: passing `m_strReservationId` where the callee does a lookup by `m_strTradeId`
-6. Report: "caller passes [exact variable name] at [file:line], callee [exact class::function] at [file:line] uses it as [lookup key meaning]"
+**Rule**: NEVER assume the unit from the variable name alone. You MUST:
+1. Grep for the getter name, find its `.cpp` implementation
+2. Read the method body AND its leading comment/documentation line
+3. Note the stated unit (e.g., "returns basis points", "returns percent", "returns seconds")
+4. Verify the divisor/comparand matches: basis points → `/10000.0` (not `/100.0`), percent → `/100.0`, seconds → compare to seconds not minutes
 
-**You MUST grep for and read the callee file** — never assume its filename or content from the caller alone.
+**If mismatch found**: flag in Suspicious items, quoting both the getter comment and the exact divisor line.
+
+Examples:
+- `GetGraceBps() / 100.0` — if getter doc says "basis points (50 = 0.50%)", divisor should be `/10000.0` not `/100.0` → **50% grace instead of 0.50%**
+- `GetDeadlineMinutes() < dSecondsOffset` — minutes vs seconds comparison → **all deadlines missed or all passed**
+- `GetFeeBps() > dMaxPercent` — 50 bps > 1.0% numerically is `50 > 1.0` always true → **all fees rejected**
+
+**Never report a type mismatch (int vs double) as the bug until you have checked Pattern F first.**
+
+### Pattern G — Backward value tracing ⚠️ MANDATORY
+**Trigger**: you find a value in a comparison or arithmetic that looks wrong — too small, too large, always 0/1, collapsed to a constant (e.g., `nThreshold = 1`, `nLimit = 0`, `dRate = 1.0` when context implies it should be much larger).
+
+**Rule**: NEVER stop at the consumer. You MUST trace the value back to its origin:
+1. In the same file, find where the variable is **assigned** (grep `variableName =` or `variableName{`)
+2. If assigned from a function call (e.g., `ParseInt(strRaw)`) → glob/read that function's `.cpp`
+3. If that function reads from an external source (registry, env, file, DB) → read the reader too
+4. Stop when you reach a **literal value** or an **I/O boundary** (file read, `RegQueryValueEx`, `getenv`, DB query)
+5. Report every link in the chain — caller file:line → parser file:line → source file:line
+
+**Common chains that hide bugs:**
+- Registry string → `ParseInt`/`stoi` → consumer: `std::stoi("1,000")` **silently returns `1`** (stops at the comma, no exception thrown — this is defined C++ behavior). On Windows locales where thousands separator is comma, "1000" is stored as "1,000". The parsed result is 1, not 1000.
+- `std::stoi` / `std::stoul` / `atoi`: these functions stop at the **first non-numeric character** and return the partial integer. They do NOT throw for locale-formatted strings like "1,000". `std::stoi("1,000") == 1`. If the raw input is "1,000" and the consumer expected 1000, the bug is silent truncation, not an exception.
+- Env var → `atoi`/`strtol` → config field: locale decimal separator causes truncation
+- Config file line → `sscanf` → struct field: format mismatch silently writes 0
+- Mapped value → wrong key → default/zero: map lookup returns default when key is wrong type
+
+**When you find `std::stoi` in a parser**: always report (a) what the raw input string is (from the source/reader), (b) what `stoi` returns given that input (trace the comma/separator), (c) what the consumer does with that value. Do NOT assume stoi throws — it silently truncates.
+
+**If the chain reveals a parsing/conversion step**: read that step's full implementation. Quote the exact conversion call. State what the input string is (from the source) and what the output integer/float is (after parsing).
+
+**If a false-witness log shows the value**: logs are not ground truth. The audit log may format the value correctly for display while the enforcer uses the raw (wrong) value. Trace the enforcer's value, not the logger's.
 
 ## Output format
 
@@ -122,7 +149,6 @@ When a function call passes a variable and the bug might be "wrong argument":
 ## Constraints
 
 - Always read files — do not answer from grep output alone
-- **Copy class names, function names, and variable names verbatim from the code you read.** Never abbreviate or invent names. `CTradeLifecycleService::ReleaseCreditForTrade` is not the same as `TradeService::CancelTrade`. If unsure of a name, grep for it.
 - Report exact file:line for every finding — quote the key line when it's short (under 80 chars)
 - If you cannot find the answer after 4 greps and 5 reads, report what you found and where you got stuck
 - Do not spawn subagents

@@ -30,16 +30,21 @@ Thread A prompt: <what to investigate — starting class/function, specific ques
 Thread B prompt: <what to investigate — starting class/function, specific question>
 ```
 
-## Step 1: Spawn both investigators in parallel
+## Step 1: Spawn both investigators in parallel — YOUR FIRST ACTION
 
-Spawn TWO tasks simultaneously, both using `subagent_type: cpp-bug-tracer/investigator`.
+Your FIRST tool call must spawn BOTH tasks at once. Use this subagent_type for each:
 
-- Task A: forward the Thread A prompt verbatim
-- Task B: forward the Thread B prompt verbatim
+```
+subagent_type: cpp-bug-tracer/investigator
+```
 
-**CRITICAL**: spawn both tasks in the SAME step so they run in parallel. Do not wait for one before starting the other.
+**Do NOT use `cpp-bug-tracer/abstractor`** — that is your own identity, calling it would loop.
+**Do NOT do anything else first** — no reasoning steps, no file reads, spawn immediately.
 
-The only valid subagent type is: `cpp-bug-tracer/investigator`
+- Task A: forward the Thread A prompt verbatim as the task prompt
+- Task B: forward the Thread B prompt verbatim as the task prompt
+
+Spawn both in the **same step** (parallel). Do not wait for one to finish before starting the other.
 
 ## Step 2: Wait for both to complete, then synthesize
 

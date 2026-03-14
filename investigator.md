@@ -32,7 +32,7 @@ You receive:
 3. **Follow the chain**: if the function calls another relevant function, grep for it and read its body too.
 4. **Stop when you have the answer** — do not explore tangents.
 
-You may call grep up to 4 times and read up to 5 files. Stop as soon as you can answer the question.
+You may call grep up to 6 times and read up to 7 files. Stop as soon as you can answer the question. If you are applying Pattern G (backward value tracing), you may use the full budget to follow the chain to its origin — do not stop at the consumer.
 
 ## Special investigation patterns
 
@@ -76,6 +76,48 @@ When a bug is "only happens on first load" or "only before X is called":
 - Find where the state variable is initialized (constructor, default value)
 - Find where it's supposed to be set (the setter call)
 - Confirm whether the setter is actually called before the code that reads it
+
+### Pattern F — Getter unit verification in arithmetic ⚠️ MANDATORY
+**Trigger**: you see a getter used in arithmetic: `GetXxx() / 100.0`, `GetXxx() * factor`, `GetXxx() / 10000.0`, `GetXxx() < someValue`
+
+**Rule**: NEVER assume the unit from the variable name alone. You MUST:
+1. Grep for the getter name, find its `.cpp` implementation
+2. Read the method body AND its leading comment/documentation line
+3. Note the stated unit (e.g., "returns basis points", "returns percent", "returns seconds")
+4. Verify the divisor/comparand matches: basis points → `/10000.0` (not `/100.0`), percent → `/100.0`, seconds → compare to seconds not minutes
+
+**If mismatch found**: flag in Suspicious items, quoting both the getter comment and the exact divisor line.
+
+Examples:
+- `GetGraceBps() / 100.0` — if getter doc says "basis points (50 = 0.50%)", divisor should be `/10000.0` not `/100.0` → **50% grace instead of 0.50%**
+- `GetDeadlineMinutes() < dSecondsOffset` — minutes vs seconds comparison → **all deadlines missed or all passed**
+- `GetFeeBps() > dMaxPercent` — 50 bps > 1.0% numerically is `50 > 1.0` always true → **all fees rejected**
+
+**Never report a type mismatch (int vs double) as the bug until you have checked Pattern F first.**
+
+### Pattern G — Backward value tracing ⚠️ MANDATORY
+**Trigger**: you find a value in a comparison or arithmetic that looks wrong — too small, too large, always 0/1, collapsed to a constant (e.g., `nThreshold = 1`, `nLimit = 0`, `dRate = 1.0` when context implies it should be much larger).
+
+**Rule**: NEVER stop at the consumer. You MUST trace the value back to its origin:
+1. In the same file, find where the variable is **assigned** (grep `variableName =` or `variableName{`)
+2. If assigned from a function call (e.g., `ParseInt(strRaw)`) → glob/read that function's `.cpp`
+3. If that function reads from an external source (registry, env, file, DB) → read the reader too
+4. Stop when you reach a **literal value** or an **I/O boundary** (file read, `RegQueryValueEx`, `getenv`, DB query)
+5. Report every link in the chain — caller file:line → parser file:line → source file:line
+
+**Common chains that hide bugs:**
+- Registry string → `ParseInt`/`stoi` → consumer: `std::stoi("1,000")` **silently returns `1`** (stops at the comma, no exception thrown — this is defined C++ behavior). On Windows locales where thousands separator is comma, "1000" is stored as "1,000". The parsed result is 1, not 1000.
+- Scientific notation string → `ParseInt`/`stoi` → consumer: `std::stoi("1e3")` **silently returns `1`** (stops at the 'e', no exception thrown — this is defined C++ behavior). The string "1e3" means 1000 in scientific notation but std::stoi only parses the leading digit. Similarly, `std::stoi("2e5")` returns 2, `std::stoi("1.5e2")` returns 1.
+- `std::stoi` / `std::stoul` / `atoi`: these functions stop at the **first non-numeric character** and return the partial integer. They do NOT throw for locale-formatted strings like "1,000" or scientific notation like "1e3". `std::stoi("1,000") == 1`, `std::stoi("1e3") == 1`. If the raw input is "1,000" or "1e3" and the consumer expected 1000, the bug is silent truncation, not an exception.
+- Env var → `atoi`/`strtol` → config field: locale decimal separator causes truncation
+- Config file line → `sscanf` → struct field: format mismatch silently writes 0
+- Mapped value → wrong key → default/zero: map lookup returns default when key is wrong type
+
+**When you find `std::stoi` in a parser**: always report (a) what the raw input string is (from the source/reader), (b) what `stoi` returns given that input (trace the comma/separator), (c) what the consumer does with that value. Do NOT assume stoi throws — it silently truncates.
+
+**If the chain reveals a parsing/conversion step**: read that step's full implementation. Quote the exact conversion call. State what the input string is (from the source) and what the output integer/float is (after parsing).
+
+**If a false-witness log shows the value**: logs are not ground truth. The audit log may format the value correctly for display while the enforcer uses the raw (wrong) value. Trace the enforcer's value, not the logger's.
 
 ## Output format
 
