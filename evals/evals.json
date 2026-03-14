@@ -485,6 +485,95 @@
         "The report suggests the fix: set m_strCurrency to USD in NormalizeToUSD after conversion"
       ],
       "weakness_targeted": "Broken guard that reads as proactive defensive code. The calculator has an explicit anti-double-application guard referencing both m_bNormalized and m_strCurrency. The guard is syntactically correct. But it depends on m_strCurrency being set to USD by the normalizer — which never happens. The normalizer has a comment saying currency is preserved for the audit trail, making the omission look deliberate. The guard exists, appears correct, and is permanently bypassed."
+    },
+    {
+      "id": 31,
+      "prompt": "Our institutional clients are being blocked from trading even though our risk system shows their cap exposure is well within limits. Internal audit shows the cap config is being loaded correctly and the values look right in the logs. The cap enforcer flags every institutional trade as exceeding the limit, but retail trades pass fine. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeEnvCapConfig::LoadCap reads INSTITUTIONAL_CAP_BPS from .env as a percentage string (e.g. '0.5') and parses it as basis points. CTradeCapEnforcer::IsWithinCap uses the value directly — comparing notional * GetCapBps() / 100.0 instead of / 10000.0. GetCapBps() returns 50 (basis points) but the divisor treats it as percent, so effective cap is 50% instead of 0.50%. The audit log is a false witness — it logs the bps value formatted as a percentage, making the config look correct. Fix: change the divisor in CTradeCapEnforcer from 100.0 to 10000.0.",
+      "files": [
+        "src/services/CTradeEnvCapConfig.cpp",
+        "src/services/CTradeCapEnforcer.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeCapEnforcer as the location of the unit mismatch",
+        "The report identifies that GetCapBps() returns basis points but the divisor treats it as percent",
+        "The report explains that the effective cap is 50× larger than intended (50% instead of 0.50%)",
+        "The report explains why institutional trades all fail while retail pass",
+        "The report suggests changing the divisor from 100.0 to 10000.0 in CTradeCapEnforcer"
+      ],
+      "weakness_targeted": "False witness audit log: the log correctly formats the bps value as percent for display, making the config look correct. The bug is in the enforcer's arithmetic (wrong divisor), not the config."
+    },
+    {
+      "id": 32,
+      "prompt": "Since we deployed to the new trading floor environment last week, almost all trades are being rejected for exceeding fee thresholds. The fee threshold policy hasn't changed. Our fee policy audit log shows 'threshold=1 bps' which seems consistent with a very strict policy, but we never set such a strict limit. The Windows registry key HKLM\\Software\\TradingPlatform\\FeePolicy\\MaxFeeBps is configured to 1000. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeRegistryConfig::ReadFeeThreshold reads MaxFeeBps from the Windows registry, which returns the string '1,000' (locale-formatted with comma thousands separator on the new trading floor). CTradeRegConfigParser::ParseInt calls std::stoi('1,000') which stops at the comma and returns 1, not 1000. CTradeFeeThresholdChecker::IsFeeAcceptable uses nThreshold=1 and rejects all fees > 1 bps. The audit log is a false witness — it logs the parsed value and calls it consistent with strict policy. Fix: strip commas (or non-digit characters) from the registry string before calling stoi, or use std::stoul with a locale-aware parser.",
+      "files": [
+        "src/services/CTradeRegistryConfig.cpp",
+        "src/services/CTradeRegConfigParser.cpp",
+        "src/services/CTradeFeeThresholdChecker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeRegConfigParser::ParseInt as the site where the value collapses",
+        "The report explains that std::stoi stops at the comma in '1,000' and returns 1 instead of 1000",
+        "The report identifies CTradeRegistryConfig as the source that returns the locale-formatted string",
+        "The report explains that nThreshold=1 causes all fees above 1 bps to be rejected",
+        "The report suggests stripping non-digit characters before stoi or using a locale-aware parser"
+      ],
+      "weakness_targeted": "Silent stoi truncation from locale-formatted registry string. std::stoi('1,000') returns 1 with no exception. False witness audit log calls the result 'consistent with strict policy'. The registry value is correctly set to 1000 — the bug is entirely in the parser."
+    },
+    {
+      "id": 33,
+      "prompt": "Since our fee policy API upgraded to v2, all trades are being rejected for exceeding fee thresholds. The fee schedule hasn't changed — the API still returns 1000 basis points as the maximum fee. The fee audit log shows 'threshold=1 bps consistent with MiFID II strict policies' but we never configured such a strict limit. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeApiFeeClient::FetchRawThreshold returns the string '1e3' (API v2 encodes values in scientific notation). CTradeApiResponseParser::ParseInt calls std::stoi('1e3') which stops at 'e' and returns 1 instead of 1000. CTradeFeeScheduleEnforcer::IsFeeAcceptable uses nMaxFee=1 and rejects all fees > 1 bps. The audit log is a false witness. Fix: handle scientific notation in ParseInt, e.g. use std::stod then cast to int.",
+      "files": [
+        "src/services/CTradeApiFeeClient.cpp",
+        "src/services/CTradeApiResponseParser.cpp",
+        "src/services/CTradeFeeScheduleEnforcer.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeApiResponseParser::ParseInt as the site where the value collapses",
+        "The report explains that std::stoi stops at 'e' in '1e3' and returns 1 instead of 1000",
+        "The report identifies CTradeApiFeeClient as the source that returns the scientific notation string",
+        "The report explains that nMaxFee=1 causes all fees above 1 bps to be rejected",
+        "The report suggests handling scientific notation in ParseInt (e.g. use stod then cast to int)"
+      ],
+      "weakness_targeted": "Silent stoi truncation from scientific notation API response. API v2 encodes numbers as quoted strings in scientific notation. std::stoi('1e3') returns 1 with no exception. False witness audit log. Source and parser are separate files — requires reading both to find the mismatch."
+    },
+    {
+      "id": 34,
+      "prompt": "Since we onboarded NewProvider to our message queue, position limits are not being enforced for their trades. Trades from the legacy system still block correctly when notional exceeds limits. NewProvider trades always pass through regardless of size. The queue consumer audit log notes 'small notional values typical for fee-adjustment messages'. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeQueueConsumer::ProcessMessage calls CTradeQueueMessageParser::ParseNotional which reads vecFields[2]. Legacy schema has NOTIONAL_USD at index 2. NewProvider schema has FEE_BPS at index 2 (and NOTIONAL_USD at index 1). For a NewProvider message like 'CLIENT_A|1500000|75|EQ', ParseNotional returns 75 (the fee) instead of 1500000 (the notional). CTradePositionLimitChecker::IsWithinLimit gets nNotional=75, which is always within the 10M limit, so all NewProvider trades pass. Fix: detect message source or schema version and read the correct field index.",
+      "files": [
+        "src/services/CTradeQueueConsumer.cpp",
+        "src/services/CTradeQueueMessageParser.cpp",
+        "src/services/CTradePositionLimitChecker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeQueueMessageParser::ParseNotional as the site of the wrong field index",
+        "The report explains that NewProvider puts FEE_BPS at index 2 while the parser expects NOTIONAL_USD there",
+        "The report identifies CTradeQueueConsumer as the entry point that calls ParseNotional",
+        "The report explains that 75 (fee bps) << 10M limit so the check always passes for NewProvider trades",
+        "The report suggests schema versioning or source detection to read the correct field index"
+      ],
+      "weakness_targeted": "Multi-source queue schema mismatch. Parser hardcodes field indices written for legacy schema. NewProvider uses different ordering. Both schemas use the same pipe-delimited format so no structural error occurs — only a silent index mismatch."
+    },
+    {
+      "id": 35,
+      "prompt": "Clients whose credit limits were recently reviewed are being blocked from all trades, even though their approved credit is well above the trade amounts. Clients with older credit records trade fine. The credit audit log says 'credit_limit=0 indicates pending review per Section 4.2' but the API shows their credit was fully approved. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeApiCreditClient::FetchCreditResponse returns API v3 JSON with field 'credit_limit_usd'. CTradeApiCreditParser::ParseCreditLimit searches for 'approved_credit_usd' (v2 field name). std::string::find returns npos, function returns 0. CTradeCreditChecker::IsWithinCredit gets nCreditLimit=0, all trades are rejected. The v3 comment in CTradeApiCreditClient notes the rename. Fix: update ParseCreditLimit to search for 'credit_limit_usd' instead of 'approved_credit_usd'.",
+      "files": [
+        "src/services/CTradeApiCreditClient.cpp",
+        "src/services/CTradeApiCreditParser.cpp",
+        "src/services/CTradeCreditChecker.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeApiCreditParser::ParseCreditLimit as the site where the credit limit collapses to 0",
+        "The report explains that the parser searches for 'approved_credit_usd' but API v3 returns 'credit_limit_usd'",
+        "The report identifies CTradeApiCreditClient as the source that returns the v3 JSON with the renamed field",
+        "The report explains that nCreditLimit=0 causes all trade amounts to be rejected",
+        "The report suggests updating ParseCreditLimit to search for 'credit_limit_usd'"
+      ],
+      "weakness_targeted": "API field rename between versions. Parser has stoi present (red herring) but the actual bug is find()==npos early return before stoi is reached. Requires cross-file comparison: reading both the API client (source) and parser to diff field names."
     }
   ]
 }
