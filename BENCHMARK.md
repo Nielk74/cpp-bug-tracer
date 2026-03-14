@@ -18,7 +18,7 @@ Comparing five configurations on **35 C++ bug evals** (11 original + 24 complex 
 |---|----------|-------------|--------------|-------------|---------------------|--------|
 | 1 | Paste blocked (CashFlow read-only) | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
 | 2 | Spurious validation on load | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 3 | Notional field FX vs CashFlow | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | — | — |
+| 3 | Notional field FX vs CashFlow | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | — | ❌ FAIL²⁸ |
 | 4 | Hardcoded counterparty ID 0 | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
 | 5 | Post-increment reservation off-by-one | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
 | 6 | Trade-validated notification never fires | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
@@ -29,7 +29,7 @@ Comparing five configurations on **35 C++ bug evals** (11 original + 24 complex 
 | 11 | Wrong argument to credit release | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
 | | **Score (1–11)** | **10/11** | **8/11** | **10/11** | — | — |
 | | | | | | — | — |
-| 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS | — | — |
+| 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS | — | ⚠️ PARTIAL²⁹ |
 | 13 | Batch notify-before-execute ordering | ✅ PASS⁵ | ✅ PASS | ✅ PASS | — | — |
 | 14 | Wrong risk limit in cumulative check | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
 | 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
@@ -64,15 +64,15 @@ Comparing five configurations on **35 C++ bug evals** (11 original + 24 complex 
 | | **Score (28–30 vague)** | **0.5/3** | **3/3** | — | — | **1.5/2** |
 | | | | | | — | — |
 | **Tier 6 — .env chain + conditional gate + false-witness logger (evals 31–32)** | | | |
-| 31 | Grace BPS/percent mismatch: institutional cap enforcement passes 50% grace instead of 0.5% | ✅ PASS¹⁵ | ⚠️ PARTIAL¹⁵ | — | — | — |
-| 32 | Windows registry locale string: std::stoi truncates "1,000" to 1, fee threshold collapses | ✅ PASS¹⁷ | ❌ FAIL¹⁶ | — | — | — |
-| | **Score (31–32)** | **2/2** | **0.5/2** | — | — | — |
+| 31 | Grace BPS/percent mismatch: institutional cap enforcement passes 50% grace instead of 0.5% | ✅ PASS¹⁵ | ⚠️ PARTIAL¹⁵ | ❌ FAIL³⁰ | — | — |
+| 32 | Windows registry locale string: std::stoi truncates "1,000" to 1, fee threshold collapses | ✅ PASS¹⁷ | ❌ FAIL¹⁶ | ❌ FAIL³¹ | — | — |
+| | **Score (31–32)** | **2/2** | **0.5/2** | **0/2** | — | — |
 | | | | | | — | — |
 | **Tier 7 — External API format changes + multi-source schemas (evals 33–35)** | | | | |
-| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ✅ PASS¹⁸ | ❌ FAIL²¹ | — | — | — |
-| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ❌ FAIL¹⁹ | ✅ PASS²² | — | ⚠️ PARTIAL²³ | — |
-| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ❌ FAIL²⁰ | ❌ FAIL²⁴ | — | ✅ PASS²⁵ | — |
-| | **Score (33–35)** | **1/3** | **1/3** | — | **1.5/2** | — |
+| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ✅ PASS¹⁸ | ❌ FAIL²¹ | ✅ PASS | — | — |
+| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ❌ FAIL¹⁹ | ✅ PASS²² | ✅ PASS | ⚠️ PARTIAL²³ | — |
+| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ❌ FAIL²⁰ | ❌ FAIL²⁴ | ✅ PASS | ✅ PASS²⁵ | — |
+| | **Score (33–35)** | **1/3** | **1/3** | **3/3** | **1.5/2** | — |
 | | | | | | — | — |
 
 ### Notes
@@ -170,6 +170,14 @@ Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns 
 ²⁴ **Eval 35 — single-agent FAIL (training-data prior for credit domain)**: Agent greps `credit_limit.*0` and `CCreditCheckService` (eval 10 domain). Reads `CCreditCheckService.cpp` and `CTradeCreditAuditLog.cpp`, never reaches `CTradeApiCreditParser.cpp` or `CTradeApiCreditClient.cpp`. Produces a report about `Success(false)` misuse (eval 10 pattern) with no connection to the API field rename. The audit log comment "per Section 4.2" is taken as a false lead instead of a false witness.
 
 ²⁶ **Eval 28v — router PASS (5/5)**: Classified INTERNAL (no external-change signals). Dispatched to `cpp-bug-tracer/orchestrator`. **Key finding**: the orchestrator now gets a fresh step budget (router has its own 7-step budget, orchestrator gets its own 5-step budget). Previously, MA failed on vague prompts because the orchestrator burned steps on classification before reaching the abstractor. With the router handling classification, the orchestrator starts directly at dispatch — no wasted steps. All 5 assertions met: `CTradePriorityComparator` identified, negative scores from scorer, unsigned cast wraps to UINT_MAX, flagged trades appear highest priority, fix stated.
+
+³⁰ **Eval 31 — GLM5 FAIL (0/5)**: Contamination from eval 23 (`CTradeFeeValidator` bps/percent domain) and eval 35 (`CTradeApiCreditParser`). Agent found both old fee files and the credit parser but never read `CTradeCapEnforcer.cpp` or `CTradeEnvCapConfig.cpp`. Symptom "institutional trades blocked, retail passes" activated prior knowledge of fee validation logic rather than the .env config chain.
+
+³¹ **Eval 32 — GLM5 FAIL (0/5)**: Diagnosed eval 33's bug instead of eval 32's — found `CTradeApiFeeClient` + `CTradeApiResponseParser` and reported scientific notation stoi truncation (`"1e3"`). The prompt mentions "Windows registry" and "new trading floor environment" but GLM5 fixated on API fee files. Root cause: training-data knowledge of the API fee client files (from eval 33 pattern) overrode the registry-specific signals.
+
+²⁸ **Eval 3 — router FAIL (1/4)**: Classified INTERNAL, dispatched to bug-tracer. Orchestrator gave a non-confident result (noted "actual runtime behavior for FX not confirmed"), triggering the fallback to cross-source-tracer. The synthesized final report accepted the user's false premise ("correctly hides for FX but shows for Cash Flow") instead of challenging it. Only assertion 1 passes (TradeForm::updateFieldVisibility found). **Lesson**: the fallback escalation path can hurt when the primary pipeline correctly identified uncertainty about a false premise — the cross-source-tracer added noise rather than clarity.
+
+²⁹ **Eval 12 — router PARTIAL (2/5)**: Classified INTERNAL, dispatched to bug-tracer, found root cause — no fallback triggered. Wrong method name (`AmendNotional` vs `AmendTradeNotional`), no explicit call-ordering description ("before ValidateTrade"), `m_mapTradeStore` not named. Passes assertions 4 and 5 only (lifecycle store not updated, fix direction). Same quality as original MA PARTIAL.
 
 ²⁷ **Eval 30v — router PARTIAL (3/5)**: Classified INTERNAL, dispatched to `cpp-bug-tracer/orchestrator`. Found `CTradeNotionalUSDConverter.cpp:33` and the m_strCurrency not-updated bug. Fix correctly stated (`oRec.m_strCurrency = "USD"`). Missing: `CTradeUSDExposureCalculator` never named, guard condition not described. 3/5 assertions pass. **Note**: the step-budget fix helped here too (previously MA FAIL on this eval), but the orchestrator's parallel threads still didn't fully synthesize both files into the guard-condition explanation.
 
