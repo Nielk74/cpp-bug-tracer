@@ -1,46 +1,74 @@
 flowchart TD
     User(["👤 User\nreports C++ bug"])
 
-    subgraph orchestrator["🎯 orchestrator  ·  primary agent"]
-        O1["1 · Classify bug type\n(event / counter / ID / conditional\n/ cross-layer / should-fail-but-doesn't)"]
-        O2["2 · Build Thread A & B prompts\n(starting class · specific question · path)"]
-        O3["4 · Write final report\n(call graph · locations · fix direction)"]
+    subgraph router["🚦 router  ·  entry point"]
+        R1["Classify symptom\nEXTERNAL · INTERNAL · UNCLEAR"]
+        R2{"Route"}
+        R3["Evaluate result\n(file:line cited? fix stated?)"]
+        R4["Fallback: run other pipeline\nwith prior findings as context"]
+        R5["Write final report"]
     end
 
-    subgraph abstractor["🔬 abstractor  ·  investigation coordinator"]
-        A1["Spawn Thread A & Thread B\nin parallel"]
-        A2["Synthesize findings\n(root cause · confidence · gaps)"]
-        A3{"Confidence\nLOW?"}
-        A4["Spawn follow-up\ninvestigator"]
+    subgraph cst["🔗 cross-source-tracer  ·  API / queue / registry changes"]
+        CST1["Extract domain noun\n(fee · credit · queue · settlement)"]
+        CST2["Find SOURCE file\n(API client · queue consumer)"]
+        CST3["Find PARSER file"]
+        CST4["Diff contracts\n(field names · indices · encoding)"]
     end
 
-    subgraph investigators["🔍 investigator  ×2  (parallel)"]
-        I1["Thread A\nTrace one execution path\n(grep → read files → follow chain)"]
-        I2["Thread B\nTrace another execution path\n(grep → read files → follow chain)"]
+    subgraph bugtracer["🐛 cpp-bug-tracer  ·  intra-codebase logic bugs"]
+        O1["Classify bug type\n(event · counter · unit · ID\n· conditional · cross-layer)"]
+        O2["Build Thread A & B prompts"]
+
+        subgraph abstractor["🔬 abstractor"]
+            A1["Spawn Thread A & B\nin parallel"]
+            A2["Synthesize findings"]
+        end
+
+        subgraph investigators["🔍 investigator ×2"]
+            I1["Thread A\nTrace call chain"]
+            I2["Thread B\nTrace call chain"]
+        end
     end
 
     Codebase[("📁 C++ codebase")]
+    Report(["📄 Bug report\n(root cause · file:line · fix)"])
 
-    Report(["📄 Bug report\n(root cause · call graph\n· suggested fix)"])
+    User --> R1
+    R1 --> R2
 
-    User --> O1
+    R2 -->|EXTERNAL| CST1
+    R2 -->|INTERNAL| O1
+    R2 -->|UNCLEAR| CST1
+    R2 -->|UNCLEAR| O1
+
+    CST1 --> CST2
+    CST2 <-->|"glob · read"| Codebase
+    CST2 --> CST3
+    CST3 <-->|"glob · read"| Codebase
+    CST3 --> CST4
+    CST4 -->|findings| R3
+
     O1 --> O2
-    O2 -->|"Task: cpp-bug-tracer/abstractor"| A1
-    A1 -->|"Task: cpp-bug-tracer/investigator"| I1
-    A1 -->|"Task: cpp-bug-tracer/investigator"| I2
+    O2 --> A1
+    A1 --> I1
+    A1 --> I2
     I1 <-->|"grep · read"| Codebase
     I2 <-->|"grep · read"| Codebase
     I1 -->|findings| A2
     I2 -->|findings| A2
-    A2 --> A3
-    A3 -->|YES| A4
-    A4 -->|"Task: cpp-bug-tracer/investigator"| Codebase
-    A4 --> A2
-    A3 -->|NO · SYNTHESIS| O3
-    O3 --> Report
+    A2 -->|findings| R3
 
-    style orchestrator fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
-    style abstractor fill:#fce7f3,stroke:#ec4899,color:#831843
+    R3 -->|"root cause found"| R5
+    R3 -->|"nothing found\n→ try other pipeline"| R4
+    R4 -->|"with prior context"| CST1
+    R4 -->|"with prior context"| O1
+    R5 --> Report
+
+    style router fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+    style cst fill:#fce7f3,stroke:#ec4899,color:#831843
+    style bugtracer fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    style abstractor fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
     style investigators fill:#dcfce7,stroke:#22c55e,color:#14532d
     style Codebase fill:#fef9c3,stroke:#ca8a04,color:#713f12
     style User fill:#f1f5f9,stroke:#64748b,color:#1e293b
