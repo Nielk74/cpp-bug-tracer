@@ -8,72 +8,74 @@ Comparing five configurations on **35 C++ bug evals** (11 original + 24 complex 
 | **single-agent-qwen3** | one agent, reads files directly | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
 | **single-agent-glm5** | one agent, reads files directly | glm-5 (Z.AI Coding Plan) |
 | **cross-source-tracer** | orchestrator → investigator (source+parser diff) | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
-| **router** | router → [bug-tracer \| cross-source-tracer] with fallback | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
+| **router** | router → [bug-tracer | cross-source-tracer] with fallback | qwen/qwen3-coder-30b-a3b-instruct (OpenRouter) |
+| **single-agent-mistral** | one agent, reads files directly | mistralai/mistral-medium-3.1 (OpenRouter) |
+| **router-mistral** | router → [bug-tracer | cross-source-tracer] with fallback | mistralai/mistral-medium-3.1 end-to-end (all agents) |
 
 ---
 
 ## Results
 
-| # | Bug type | multi-agent | single-qwen3 | single-glm5 | cross-source-tracer | router |
-|---|----------|-------------|--------------|-------------|---------------------|--------|
-| 1 | Paste blocked (CashFlow read-only) | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 2 | Spurious validation on load | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 3 | Notional field FX vs CashFlow | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | — | ❌ FAIL²⁸ |
-| 4 | Hardcoded counterparty ID 0 | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 5 | Post-increment reservation off-by-one | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 6 | Trade-validated notification never fires | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 7 | Settlement triggers wrong handler | ✅ PASS | ⚠️ PARTIAL² | ✅ PASS | — | — |
-| 8 | Counter double-incremented | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 9 | Double settlement (cross-layer state) | ✅ PASS | ❌ FAIL³ | ✅ PASS | — | — |
-| 10 | Credit limit `Success(false)` misuse | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 11 | Wrong argument to credit release | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| | **Score (1–11)** | **10/11** | **8/11** | **10/11** | — | — |
-| | | | | | — | — |
-| 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS | — | ⚠️ PARTIAL²⁹ |
-| 13 | Batch notify-before-execute ordering | ✅ PASS⁵ | ✅ PASS | ✅ PASS | — | — |
-| 14 | Wrong risk limit in cumulative check | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS | — | — |
-| | **Score (12–15)** | **3/4** | **4/4** | **4/4** | — | — |
-| | **Total score** | **13/15** | **12/15** | **14/15** | — | — |
-| | | | | | — | — |
-| 16 | Exposure release reads unpopulated map | ✅ PASS | ✅ PASS | — | — | — |
-| 17 | P&L key: counterparty code vs product type | ✅ PASS | ✅ PASS | — | — | — |
-| 18 | Sanctions: name vs code lookup | ✅ PASS | ✅ PASS | — | — | — |
-| 19 | Audit: operation ID written to trade ID field | ✅ PASS | ✅ PASS | — | — | — |
-| 20 | Rate limit: per-hour config vs per-minute window | ✅ PASS¹⁰ | ✅ PASS | — | — | — |
-| 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — | — | — |
-| 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — | — | — |
-| 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | ✅ PASS | — | — | — |
-| | **Score (16–23)** | **7/8** | **8/8** | — | — | — |
-| | | | | | — | — |
-| 24 | Priority queue inversion: classifier vs scheduler convention | ✅ PASS | ✅ PASS | — | — | — |
-| 25 | Risk limit: normalizer millions vs absolute USD | ✅ PASS | ✅ PASS | — | — | — |
-| 26 | Message encode/decode: cptyCode ↔ notional field swap | ✅ PASS | ✅ PASS | — | — | — |
-| 27 | Implicit contract: fill recorder writes nothing on final fill; completion checker expects key=0.0 | ✅ PASS | ✅ PASS | — | — | — |
-| | **Score (24–27)** | **4/4** | **4/4** | — | — | — |
-| | | | | | — | — |
-| 28 | Priority unsigned cast: negative score wraps to UINT_MAX | ✅ PASS | ✅ PASS | — | — | — |
-| 29 | Settlement seconds vs minutes (false-witness audit logger) | ✅ PASS | ✅ PASS | — | — | — |
-| 30 | Double FX: converter omits currency update, calculator guard permanently false | ✅ PASS¹² | ✅ PASS | — | — | — |
-| | **Score (28–30)** | **3/3** | **3/3** | — | — | — |
-| | | | | | — | — |
+| # | Bug type | multi-agent | single-qwen3 | single-glm5 | cross-source-tracer | router | single-mistral | router-mistral |
+|---|----------|-------------|--------------|-------------|---------------------|--------|----------------|----------------|
+| 1 | Paste blocked (CashFlow read-only) | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 2 | Spurious validation on load | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 3 | Notional field FX vs CashFlow | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | ⚠️ PARTIAL¹ | — | ❌ FAIL²⁸ | — | — |
+| 4 | Hardcoded counterparty ID 0 | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 5 | Post-increment reservation off-by-one | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 6 | Trade-validated notification never fires | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 7 | Settlement triggers wrong handler | ✅ PASS | ⚠️ PARTIAL² | ✅ PASS | — | — | — | — |
+| 8 | Counter double-incremented | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 9 | Double settlement (cross-layer state) | ✅ PASS | ❌ FAIL³ | ✅ PASS | — | — | — | — |
+| 10 | Credit limit `Success(false)` misuse | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 11 | Wrong argument to credit release | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| | **Score (1–11)** | **10/11** | **8/11** | **10/11** | — | — | — | — |
+| | | | | | — | — | — | — |
+| 12 | Amendment validates stale notional | ⚠️ PARTIAL⁴ | ✅ PASS | ✅ PASS | — | ⚠️ PARTIAL²⁹ | — | — |
+| 13 | Batch notify-before-execute ordering | ✅ PASS⁵ | ✅ PASS | ✅ PASS | — | — | — | — |
+| 14 | Wrong risk limit in cumulative check | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| 15 | Pagination off-by-one (1-based page) | ✅ PASS | ✅ PASS | ✅ PASS | — | — | — | — |
+| | **Score (12–15)** | **3/4** | **4/4** | **4/4** | — | — | — | — |
+| | **Total score** | **13/15** | **12/15** | **14/15** | — | — | — | — |
+| | | | | | — | — | — | — |
+| 16 | Exposure release reads unpopulated map | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 17 | P&L key: counterparty code vs product type | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 18 | Sanctions: name vs code lookup | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 19 | Audit: operation ID written to trade ID field | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 20 | Rate limit: per-hour config vs per-minute window | ✅ PASS¹⁰ | ✅ PASS | — | — | — | — | — |
+| 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — | — | — | — | — |
+| 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — | — | — | — | — |
+| 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| | **Score (16–23)** | **7/8** | **8/8** | — | — | — | — | — |
+| | | | | | — | — | — | — |
+| 24 | Priority queue inversion: classifier vs scheduler convention | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 25 | Risk limit: normalizer millions vs absolute USD | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 26 | Message encode/decode: cptyCode ↔ notional field swap | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 27 | Implicit contract: fill recorder writes nothing on final fill; completion checker expects key=0.0 | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| | **Score (24–27)** | **4/4** | **4/4** | — | — | — | — | — |
+| | | | | | — | — | — | — |
+| 28 | Priority unsigned cast: negative score wraps to UINT_MAX | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 29 | Settlement seconds vs minutes (false-witness audit logger) | ✅ PASS | ✅ PASS | — | — | — | — | — |
+| 30 | Double FX: converter omits currency update, calculator guard permanently false | ✅ PASS¹² | ✅ PASS | — | — | — | — | — |
+| | **Score (28–30)** | **3/3** | **3/3** | — | — | — | — | — |
+| | | | | | — | — | — | — |
 | **Tier 5 — vague prompts + 55 red-herring files (evals 28–30 v2)** | | | | | |
-| 28v | Priority unsigned cast — symptom-only prompt, no component names | ❌ FAIL¹³ | ✅ PASS | — | — | ✅ PASS²⁶ |
-| 29v | Settlement seconds vs minutes — symptom-only prompt | ⚠️ PARTIAL¹³ | ✅ PASS | — | — | — |
-| 30v | Double FX — symptom-only prompt | ❌ FAIL¹³ | ✅ PASS | — | — | ⚠️ PARTIAL²⁷ |
-| | **Score (28–30 vague)** | **0.5/3** | **3/3** | — | — | **1.5/2** |
-| | | | | | — | — |
+| 28v | Priority unsigned cast — symptom-only prompt, no component names | ❌ FAIL¹³ | ✅ PASS | — | — | ✅ PASS²⁶ | — | — |
+| 29v | Settlement seconds vs minutes — symptom-only prompt | ⚠️ PARTIAL¹³ | ✅ PASS | — | — | — | — | — |
+| 30v | Double FX — symptom-only prompt | ❌ FAIL¹³ | ✅ PASS | — | — | ⚠️ PARTIAL²⁷ | — | — |
+| | **Score (28–30 vague)** | **0.5/3** | **3/3** | — | — | **1.5/2** | — | — |
+| | | | | | — | — | — | — |
 | **Tier 6 — .env chain + conditional gate + false-witness logger (evals 31–32)** | | | |
-| 31 | Grace BPS/percent mismatch: institutional cap enforcement passes 50% grace instead of 0.5% | ✅ PASS¹⁵ | ⚠️ PARTIAL¹⁵ | ❌ FAIL³⁰ | — | — |
-| 32 | Windows registry locale string: std::stoi truncates "1,000" to 1, fee threshold collapses | ✅ PASS¹⁷ | ❌ FAIL¹⁶ | ❌ FAIL³¹ | — | — |
-| | **Score (31–32)** | **2/2** | **0.5/2** | **0/2** | — | — |
-| | | | | | — | — |
+| 31 | Grace BPS/percent mismatch: institutional cap enforcement passes 50% grace instead of 0.5% | ✅ PASS¹⁵ | ⚠️ PARTIAL¹⁵ | ❌ FAIL³⁰ | — | — | ❌ FAIL³² | ❌ FAIL³³ |
+| 32 | Windows registry locale string: std::stoi truncates "1,000" to 1, fee threshold collapses | ✅ PASS¹⁷ | ❌ FAIL¹⁶ | ❌ FAIL³¹ | — | — | ❌ FAIL³⁴ | ❌ FAIL³⁵ |
+| | **Score (31–32)** | **2/2** | **0.5/2** | **0/2** | — | — | **0/2** | **0/2** |
+| | | | | | — | — | — | — |
 | **Tier 7 — External API format changes + multi-source schemas (evals 33–35)** | | | | |
-| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ✅ PASS¹⁸ | ❌ FAIL²¹ | ✅ PASS | — | — |
-| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ❌ FAIL¹⁹ | ✅ PASS²² | ✅ PASS | ⚠️ PARTIAL²³ | — |
-| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ❌ FAIL²⁰ | ❌ FAIL²⁴ | ✅ PASS | ✅ PASS²⁵ | — |
+| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ✅ PASS¹⁸ | ❌ FAIL²¹ | ✅ PASS | — | — | — | — |
+| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ❌ FAIL¹⁹ | ✅ PASS²² | ✅ PASS | ⚠️ PARTIAL²³ | — | — | — |
+| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ❌ FAIL²⁰ | ❌ FAIL²⁴ | ✅ PASS | ✅ PASS²⁵ | — | — | — |
 | | **Score (33–35)** | **1/3** | **1/3** | **3/3** | **1.5/2** | — |
-| | | | | | — | — |
+| | | | | | — | — | — | — |
 
 ### Notes
 
@@ -201,3 +203,11 @@ opencode run --agent cpp-single-agent-glm5 "<bug description>"
 # Cross-source tracer (API/queue format changes, field renames)
 opencode run --agent cpp-cross-source-tracer/orchestrator "<bug description>"
 ```
+
+³² **Eval 31 — single-mistral FAIL (0/5)**: Keyword contamination from eval 25. Agent grepped for "trade", hit `CTradeRiskChecker.cpp` from training-data knowledge, diagnosed a units mismatch (notional in millions vs. absolute limit). Never read `CTradeCapEnforcer.cpp` or `CTradeEnvCapConfig.cpp`. The symptom "institutional blocked, retail passes" triggered the same code path as eval 25 (`CTradeRiskChecker` normalizes notional). The actual bug (wrong divisor 100.0 vs 10000.0 in `CTradeCapEnforcer`) was never found. Root cause: mistral-medium has the same training-data contamination as qwen3 for this domain.
+
+³³ **Eval 31 — router-mistral FAIL (0/5)**: Router correctly classified INTERNAL and dispatched to `cpp-bug-tracer/orchestrator`. However, the orchestrator output was not captured in the router's final report — only 13 lines total in the output, with no synthesized result. Likely the orchestrator hit its step budget and produced no final summary back to the router. Net result: router produced no report. Even if orchestrator had completed, it would have hit the same CTradeRiskChecker contamination as single-mistral (same model end-to-end).
+
+³⁴ **Eval 32 — single-mistral FAIL (1/5)**: Found eval 33's bug instead of eval 32's. Agent read `CTradeApiFeeClient.cpp` (API fee client) and `CTradeApiResponseParser.cpp`, diagnosed `std::stoi("1e3")` scientific notation truncation — the exact answer to eval 33. Prompt signals "Windows registry" and "new trading floor environment" were ignored. The API fee files dominate because mistral's training data includes the pattern from eval 33 (which uses the same files). Only assertion 4 passes (threshold=1 causes rejection). Registry source, comma-in-string mechanism, and correct fix direction all missing.
+
+³⁵ **Eval 32 — router-mistral FAIL (1/5)**: Router correctly classified EXTERNAL (detected "new trading floor environment" and registry signals). Dispatched to `cpp-cross-source-tracer/orchestrator`. Investigator also found eval 33's bug — `CTradeApiFeeClient` + `CTradeApiResponseParser` + `std::stoi("1e3")`. Root cause: cross-source-tracer domain noun extraction picked `fee` and its glob pattern `**/*Api<Fee>Client*.cpp` matched the API fee client file, which is eval 33's source file, not eval 32's registry config file. The registry-path files (`CTradeRegistryConfig`, `CTradeRegConfigParser`) were never reached. Only assertion 4 passes (threshold=1 causes all rejections). **Key insight**: the cross-source-tracer's glob-by-domain-noun strategy fails when two bugs share the same domain noun (fee) but live in entirely different source paths (API vs. registry).
