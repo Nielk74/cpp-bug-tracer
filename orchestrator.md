@@ -2,7 +2,7 @@
 description: Traces bugs and unexpected behaviors in complex C++ codebases — use when a user describes a crash, wrong output, unexpected behavior, or a feature that works differently than expected in C++ code
 mode: primary
 model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
-steps: 4
+steps: 5
 tools:
   read: false
   write: false
@@ -88,11 +88,13 @@ Thread B: `"Search <codebase_path>/src for files related to <keyword_group_B>. U
 | "limit not enforced for category X, fine for category Y" | `Cap,Enforcer,Institutional` | `Env,Config,Parser` |
 | "all trades rejected, rejection rate near 100%, after config change, registry, locale" | `Fee,Threshold,Checker` | `Reg,Config,Parser` |
 | "threshold or limit appears too low, value collapsed" | `Enforcer,Checker,Limit` | `Parser,Converter,Config` |
-| "fee schedule, API upgrade, external provider, values unchanged, scientific notation, v2" | `FeeSchedule,Enforcer,Client` | `ApiResponse,Parser,Notation` |
-| "limits not enforced for new queue source, legacy source fine" | `Position,Limit,Checker` | `Queue,Message,Parser` |
-| "credit blocking clients with approved limits, recently updated only, field renamed, v3" | `Credit,Checker,Limit` | `ApiCredit,Parser,Field` |
+| "fee schedule, API upgrade, external provider, values unchanged, scientific notation, v2" | `ApiFeeClient,FeeScheduleEnforcer` | `ApiResponseParser,ParseInt` |
+| "limits not enforced for new queue source, legacy source fine" | `QueueMessage,QueueConsumer` | `QueueMessageParser,ParseNotional` |
+| "credit blocking clients with approved limits, recently updated only, field renamed, v3" | `ApiCreditParser,ApiCreditClient` | `CreditChecker,CreditLimit` |
 
 **Primary keyword** = the first word of the keyword group (used in glob pattern). Choose a noun that uniquely names the subsystem, not a verb or adjective.
+
+**For external integration bugs** (API version change, queue provider, field rename): prefix Thread B's primary keyword with `Api` or `Queue` (e.g., `ApiResponseParser`, `ApiCreditParser`, `QueueMessageParser`). These narrow the glob to the integration layer only and avoid matching older service files that contain the same domain words (`Credit`, `Fee`, `Position`) but are unrelated to the external integration.
 
 ---
 

@@ -113,11 +113,15 @@ Examples:
 - Config file line → `sscanf` → struct field: format mismatch silently writes 0
 - Mapped value → wrong key → default/zero: map lookup returns default when key is wrong type
 
-**When you find `std::stoi` in a parser**: first check ALL early-return paths BEFORE the stoi call. If there is an `if (nPos == npos) return 0;` or similar guard before the stoi line, the bug may be in that guard — the function may return 0 without ever reaching stoi. Trace the guard condition first: what key/pattern is it searching for? Could it fail to find it? Only after confirming the guard doesn't fire should you analyze the stoi call itself.
+**When you find `std::stoi` in a parser — MANDATORY two-step check**:
 
-- `std::string::find() == npos` → absent field → early `return 0`: the bug is the missing/renamed field, not stoi truncation.
-- `std::stoi(strField)` actually reached → input contains non-numeric char → silent truncation.
-These are two distinct failure modes. Do NOT assume stoi is the bug just because stoi appears in the file.
+**Step 1 (ALWAYS FIRST)**: Read the ENTIRE function top-to-bottom. Identify every early-return path before the stoi line.
+- If there is `if (nPos == std::string::npos) return 0;` or `if (find() == npos) return X;` BEFORE the stoi call, ask: "Does the symptom involve a renamed field or a version change in the external source?" If YES → the early return is the bug path. The function returns 0 (or wrong default) without reaching stoi at all.
+- `std::string::find() == npos` → absent/renamed field → early `return 0` → consumer sees 0, not stoi truncation.
+
+**Step 2 (only if no early-return fires)**: Analyze what stoi receives as input. Does the input string contain a non-numeric character (comma, 'e', dot)? If YES → stoi truncates silently.
+
+**Do NOT jump to stoi diagnosis just because stoi appears in the file.** First confirm which code path actually executes given the input from the external source.
 
 **If the chain reveals a parsing/conversion step**: read that step's full implementation. Quote the exact conversion call. State what the input string is (from the source) and what the output integer/float is (after parsing). Trace ALL code paths through the function — early returns, guards, and the conversion call itself.
 

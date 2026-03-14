@@ -67,10 +67,10 @@ Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex
 | | **Score (31–32)** | **2/2** | **0.5/2** | — |
 | | | | | |
 | **Tier 7 — External API format changes + multi-source schemas (evals 33–35)** | | | |
-| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ⏳ | — | — |
-| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ⏳ | — | — |
-| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ⏳ | — | — |
-| | **Score (33–35)** | **TBD** | — | — |
+| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ✅ PASS¹⁸ | — | — |
+| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ❌ FAIL¹⁹ | — | — |
+| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ❌ FAIL²⁰ | — | — |
+| | **Score (33–35)** | **1/3** | — | — |
 | | | | | |
 
 ### Notes
@@ -139,7 +139,9 @@ Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns 
 | task:false — investigators never ran | ❌ All evals hallucinated | ✅ Fixed | N/A |
 | Worker-agent step waste (evals 12-13) | ❌ Occurred | ✅ Fixed (orchestrator rewrite) | N/A |
 | Cross-layer / multi-file bugs | ✅ Parallelism helps (eval 9, 22) | ✅ Still works | ❌ Anchors wrong |
-| Source→parser format mismatch (evals 33–35) | ❌ Explo mode hallucinated wrong bugs | ✅ Fixed (Thread B reads BOTH source AND parser) | — |
+| Source→parser format mismatch (eval 33) | ❌ Scientific notation truncation missed | ✅ Fixed (Pattern G stoi + ApiResponseParser keyword) | — |
+| Keyword contamination with older evals (eval 34) | ❌ "position limits" triggers eval 25 files | ❌ Open — symptom too similar to eval 25 | — |
+| stoi anchoring overrides early-return path (eval 35) | ❌ stoi diagnosed instead of find()==npos | ❌ Open — requires cross-file field-name comparison | — |
 
 ### Latency
 | Config | Typical time |
@@ -148,7 +150,11 @@ Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns 
 | single-agent-qwen3 | 60–180s |
 | single-agent-glm5 | 80–200s |
 
----
+¹⁸ **Eval 33 — multi-agent PASS (4/5)**: API v2 returns `"max_fee_bps": "1e3"` as a quoted string. `CTradeApiResponseParser::ParseInt` calls `std::stoi("1e3")` which stops at 'e' and returns 1. `CTradeFeeScheduleEnforcer::IsFeeAcceptable` rejects any fee > 1 bps. Pattern G (scientific notation branch) correctly identified the truncation. Fix: Pattern G stoi knowledge + `ApiResponseParser` as Thread B primary keyword to avoid globbing old `CTradeFeeValidator`/`CTradeFeeSchedule` files. Missing assertion: `CTradeApiFeeClient` not named as the upstream source.
+
+¹⁹ **Eval 34 — multi-agent FAIL (keyword contamination)**: `CTradeQueueMessageParser::ParseNotional` hardcodes `fields[2]` (= notional for legacy, = FEE_BPS for NewProvider). Despite keyword table entry `QueueMessage,QueueConsumer`, the orchestrator consistently extracts "position limits" from the symptom and finds `CTradeRiskChecker.cpp` (eval 25's file) instead. Root failure: symptom "position limits not enforced" is semantically identical to eval 25's domain. The orchestrator keyword table is advisory; the model overrides it with training-data knowledge of the codebase. Fix would require either renaming the eval 34 files to include a unique prefix (e.g., `CTradeQueue*`), or adding "Multi-source schema" as a distinct bug classification that hard-routes to queue files.
+
+²⁰ **Eval 35 — multi-agent FAIL (stoi anchoring + missing cross-file synthesis)**: `CTradeApiCreditParser::ParseCreditLimit` searches for `"approved_credit_usd:"` (v2 field name) but API v3 response contains `"credit_limit_usd"`. `find()` returns `npos`, function returns 0, all trades blocked. Thread B correctly finds `CTradeApiCreditParser.cpp` but investigator anchors on `std::stoi` at line 20 and diagnoses truncation, ignoring the `if (nPos==npos) return 0` at line 12. Additionally, abstractor defaults to known `CCreditCheckService::Success(false)` pattern (eval 10) when synthesizing credit-limit bugs. Two simultaneous failure modes: (1) stoi anchoring despite Pattern G two-step rule, (2) abstractor training-data prior overrides file evidence. Fix would require cross-file comparison: Thread B must read BOTH `CTradeApiCreditParser.cpp` AND `CTradeApiCreditClient.cpp` and diff the field names.
 
 ---
 

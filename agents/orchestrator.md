@@ -2,7 +2,7 @@
 description: Traces bugs and unexpected behaviors in complex C++ codebases — use when a user describes a crash, wrong output, unexpected behavior, or a feature that works differently than expected in C++ code
 mode: primary
 model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
-steps: 4
+steps: 5
 tools:
   read: false
   write: false
@@ -86,24 +86,35 @@ Thread B: `"Search <codebase_path>/src for files related to <keyword_group_B>. U
 | "priority queue wrong order, unexpected" | `Priority,Score,Scorer` | `Comparator,Queue,Dispatch` |
 | "cap limits exceeded for one client type, other correct" | `Cap,Enforcer,Grace` | `Cap,Config,Bps` |
 | "limit not enforced for category X, fine for category Y" | `Cap,Enforcer,Institutional` | `Env,Config,Parser` |
-| "all trades rejected, rejection rate near 100%, after config change" | `Fee,Threshold,Checker` | `Parser,Parse,Registry` |
+| "all trades rejected, rejection rate near 100%, after config change, registry, locale" | `Fee,Threshold,Checker` | `Reg,Config,Parser` |
 | "threshold or limit appears too low, value collapsed" | `Enforcer,Checker,Limit` | `Parser,Converter,Config` |
-| "all rejected after API upgrade, provider says values unchanged" | `Fee,Schedule,Enforcer` | `Api,Response,Parser` |
-| "limits not enforced for new queue source, legacy source fine" | `Position,Limit,Checker` | `Queue,Message,Parser` |
-| "credit blocking clients with approved limits, recently updated only" | `Credit,Checker,Limit` | `Api,Credit,Parser` |
+| "fee schedule, API upgrade, external provider, values unchanged, scientific notation, v2" | `ApiFeeClient,FeeScheduleEnforcer` | `ApiResponseParser,ParseInt` |
+| "limits not enforced for new queue source, legacy source fine" | `QueueMessage,QueueConsumer` | `QueueMessageParser,ParseNotional` |
+| "credit blocking clients with approved limits, recently updated only, field renamed, v3" | `ApiCreditParser,ApiCreditClient` | `CreditChecker,CreditLimit` |
 
 **Primary keyword** = the first word of the keyword group (used in glob pattern). Choose a noun that uniquely names the subsystem, not a verb or adjective.
+
+**For external integration bugs** (API version change, queue provider, field rename): prefix Thread B's primary keyword with `Api` or `Queue` (e.g., `ApiResponseParser`, `ApiCreditParser`, `QueueMessageParser`). These narrow the glob to the integration layer only and avoid matching older service files that contain the same domain words (`Credit`, `Fee`, `Position`) but are unrelated to the external integration.
 
 ---
 
 ### NAMED-COMPONENT MODE template (prompt has `CXxx` names or method names)
 
-For **unit/scale mismatch**: Thread A reads config class (what unit it stores), Thread B reads enforcer class (what unit it assumes)
-For **event/notification**: Thread A reads sender (when event fires), Thread B reads receiver (what state it reads)
-For **ID/key lookup**: Thread A traces key generation/storage, Thread B traces key lookup/usage
-For **wrong argument**: Thread A reads caller (what it passes), Thread B reads callee (what it expects)
-For **operation should fail**: Thread A traces validation guard, Thread B traces state after success
-For **conditional/cross-layer**: Thread A reads the branch condition, Thread B traces where that state is set
+For each class name found in the prompt, include it in the thread prompts with explicit file paths:
+
+Thread A: `"Read file <codebase_path>/src/services/<ClassNameA>.cpp. This is the consumer/enforcer that uses a value from another class. Report: (1) What function calls another class to get a value? (2) What variable stores that value? (3) What comparison or check uses that variable? (4) If the value looks wrong, what function provided it? Codebase: <path>"`
+
+Thread B: `"Read file <codebase_path>/src/services/<ClassNameB>.cpp. This provides data to another class. Then grep for the parser function that processes this data and read that file too. Report: (1) What raw value/format does this class return? (2) What comments describe the format (version, schema, field names, notation)? (3) What does the parser function do with this data? (4) Compare: does the parser's logic match the source's format? Check for: field indices, field names, numeric format (scientific notation, locale), schema version. Codebase: <path>"`
+
+**Why two files in Thread B:** The bug is often a mismatch between what the source provides and what the parser expects. You must read BOTH to compare them.
+
+**Bug-type specific additions:**
+
+For **conditional/different behavior for X vs Y**: Thread A adds "Look for comments mentioning multiple sources, schemas, or versions. What are the differences?" Thread B adds "Does the source handle multiple formats? Does the parser account for all of them, or does it hardcode assumptions for one case?"
+
+For **all rejected after external change**: Thread A adds "Find what changed recently (API version, config source, provider)." Thread B adds "What is the EXACT format of the raw data returned? Compare byte-by-byte with what the parser expects."
+
+For **unit/scale mismatch**: Thread A adds "Check units in comments. If bps vs percent, flag it." Thread B adds "What unit does the getter return? Check the comment."
 
 **Extracting class names from method names (only when method name appears in prompt):**
 - `SetRateLimit` → Thread A: `CTradeRateLimitConfig`, Thread B: `CTradeRateLimiter`
