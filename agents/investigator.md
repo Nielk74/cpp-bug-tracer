@@ -25,6 +25,23 @@ You receive:
 - The codebase root path
 - Optionally: a specific value/constant to track (e.g., "track where event type 3 comes from")
 
+## ⚠️ CRITICAL — File discovery discipline
+
+This codebase contains files whose names you do not know in advance. Your training-data knowledge of class names in this codebase is **unreliable and must be ignored**.
+
+**Rule**: Before mentioning or reading ANY file, you MUST have found its path through a glob or grep tool call in this session.
+
+**Checklist before every Read call:**
+- Did I find this path via a glob or grep result? → YES: proceed. NO: run glob first.
+
+**Common contamination traps — do NOT read these unless your glob returned them:**
+- `CTradeRiskChecker.cpp` — only relevant if your glob for the primary keyword found it
+- `CTradeFeeValidator.cpp` / `CTradeFeeSchedule.cpp` — old files, often wrong for new bugs
+- `CCreditCheckService.cpp` — only for credit-state bugs, not parsing bugs
+- Any file you are about to read "because it sounds relevant" — STOP, glob first
+
+If your glob returns unexpected results (e.g., you expected a fee file but got a registry file), **trust the glob**. Read what the glob found, not what you expected to find.
+
 ## Process
 
 1. **Find the starting point**: if the starting point is a class name, use glob `**/<ClassName>.cpp` to find the implementation file directly (see Pattern E). Otherwise grep for the symbol. Always prefer `.cpp` over `.h` files.
