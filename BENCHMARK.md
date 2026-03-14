@@ -60,6 +60,18 @@ Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex
 | 29v | Settlement seconds vs minutes — symptom-only prompt | ⚠️ PARTIAL¹³ | ✅ PASS | — |
 | 30v | Double FX — symptom-only prompt | ❌ FAIL¹³ | ✅ PASS | — |
 | | **Score (28–30 vague)** | **0.5/3** | **3/3** | — |
+| | | | | |
+| **Tier 6 — .env chain + conditional gate + false-witness logger (evals 31–32)** | | | |
+| 31 | Grace BPS/percent mismatch: institutional cap enforcement passes 50% grace instead of 0.5% | ✅ PASS¹⁵ | ⚠️ PARTIAL¹⁵ | — |
+| 32 | Windows registry locale string: std::stoi truncates "1,000" to 1, fee threshold collapses | ✅ PASS¹⁷ | ❌ FAIL¹⁶ | — |
+| | **Score (31–32)** | **2/2** | **0.5/2** | — |
+| | | | | |
+| **Tier 7 — External API format changes + multi-source schemas (evals 33–35)** | | | |
+| 33 | API v2 scientific notation: std::stoi("1e3") returns 1, fee threshold collapses | ⏳ | — | — |
+| 34 | Multi-source message queue: field index 2 = notional for legacy, = fee for new provider | ⏳ | — | — |
+| 35 | API v3 field rename: parser searches "approved_credit_usd" but API returns "credit_limit_usd" | ⏳ | — | — |
+| | **Score (33–35)** | **TBD** | — | — |
+| | | | | |
 
 ### Notes
 
@@ -127,6 +139,7 @@ Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns 
 | task:false — investigators never ran | ❌ All evals hallucinated | ✅ Fixed | N/A |
 | Worker-agent step waste (evals 12-13) | ❌ Occurred | ✅ Fixed (orchestrator rewrite) | N/A |
 | Cross-layer / multi-file bugs | ✅ Parallelism helps (eval 9, 22) | ✅ Still works | ❌ Anchors wrong |
+| Source→parser format mismatch (evals 33–35) | ❌ Explo mode hallucinated wrong bugs | ✅ Fixed (Thread B reads BOTH source AND parser) | — |
 
 ### Latency
 | Config | Typical time |
@@ -134,6 +147,8 @@ Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns 
 | multi-agent | 90–420s (parallel threads, OpenRouter variance) |
 | single-agent-qwen3 | 60–180s |
 | single-agent-glm5 | 80–200s |
+
+---
 
 ---
 

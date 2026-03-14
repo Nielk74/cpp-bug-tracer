@@ -113,9 +113,13 @@ Examples:
 - Config file line → `sscanf` → struct field: format mismatch silently writes 0
 - Mapped value → wrong key → default/zero: map lookup returns default when key is wrong type
 
-**When you find `std::stoi` in a parser**: always report (a) what the raw input string is (from the source/reader), (b) what `stoi` returns given that input (trace the comma/separator), (c) what the consumer does with that value. Do NOT assume stoi throws — it silently truncates.
+**When you find `std::stoi` in a parser**: first check ALL early-return paths BEFORE the stoi call. If there is an `if (nPos == npos) return 0;` or similar guard before the stoi line, the bug may be in that guard — the function may return 0 without ever reaching stoi. Trace the guard condition first: what key/pattern is it searching for? Could it fail to find it? Only after confirming the guard doesn't fire should you analyze the stoi call itself.
 
-**If the chain reveals a parsing/conversion step**: read that step's full implementation. Quote the exact conversion call. State what the input string is (from the source) and what the output integer/float is (after parsing).
+- `std::string::find() == npos` → absent field → early `return 0`: the bug is the missing/renamed field, not stoi truncation.
+- `std::stoi(strField)` actually reached → input contains non-numeric char → silent truncation.
+These are two distinct failure modes. Do NOT assume stoi is the bug just because stoi appears in the file.
+
+**If the chain reveals a parsing/conversion step**: read that step's full implementation. Quote the exact conversion call. State what the input string is (from the source) and what the output integer/float is (after parsing). Trace ALL code paths through the function — early returns, guards, and the conversion call itself.
 
 **If a false-witness log shows the value**: logs are not ground truth. The audit log may format the value correctly for display while the enforcer uses the raw (wrong) value. Trace the enforcer's value, not the logger's.
 
