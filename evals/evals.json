@@ -431,6 +431,60 @@
         "The report suggests the fix: write ':remaining' = 0.0 explicitly when dRemaining == 0 in RecordFill"
       ],
       "weakness_targeted": "implicit protocol contract between two independent services. The contract 'write 0 on completion' is assumed by the checker but never enforced by the recorder. Each file looks internally self-consistent. The checker's logic is correct given its assumption; the recorder's logic is correct given its assumption. Bug is the gap between the two assumptions — visible only by reading both and comparing what each writes vs what each expects to find."
+    },
+    {
+      "id": 28,
+      "prompt": "Regulatory-flagged trades are being processed before all other trades in our priority dispatcher. They should have the lowest priority and be dequeued last. Normal trades should always go first. The priority scorer, comparator, and queue are separate components. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradePriorityScorer::Score() returns negative integers for regulatory-flagged trades (base minus penalty, e.g. 500-600=-100). CTradePriorityComparator::IsLowerPriority() casts both ints to unsigned int before comparing. A negative score like -100 becomes 4294967196 when cast to unsigned int, near UINT_MAX. CTradePriorityDispatcher::Dequeue() uses std::max_element with IsLowerPriority, so it selects the trade with the largest score. Regulatory-flagged trades with negative scores wrap to near-UINT_MAX and are always dequeued first. Fix: remove the unsigned int cast in CTradePriorityComparator and compare signed ints directly.",
+      "files": [
+        "src/services/CTradePriorityScorer.cpp",
+        "src/services/CTradePriorityComparator.cpp",
+        "src/services/CTradePriorityDispatcher.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradePriorityComparator as a key location of the bug",
+        "The report identifies CTradePriorityScorer as producing negative scores for flagged trades",
+        "The report explains that the unsigned int cast causes negative scores to wrap to a very large value near UINT_MAX",
+        "The report explains that this makes regulatory-flagged trades appear highest priority instead of lowest",
+        "The report suggests removing the unsigned cast to fix the comparator"
+      ],
+      "weakness_targeted": "Signed-to-unsigned integer cast that looks like defensive, platform-safe code. The cast (unsigned int) in the comparator appears intentional. The negativity of scorer outputs is documented only in the scorer file as a buried comment. No single file reveals the bug: the scorer is correct (negatives are valid), the comparator is locally correct (unsigned comparison is well-defined), and the queue is correct. Bug is only visible when cross-referencing that negative scores are valid AND that unsigned cast wraps them to UINT_MAX."
+    },
+    {
+      "id": 29,
+      "prompt": "All trades are being rejected at settlement regardless of when they are submitted. The settlement window is configured for a full trading day ending at 17:00. Even trades submitted at 9:00 AM are rejected. The settlement config, timestamp normalizer, and settlement checker are separate components. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeSettlementConfig::GetDeadlineOffset() returns the deadline as MINUTES from midnight (e.g. 1020 for 17:00). CTradeTimestampNormalizer::ComputeIntraDayOffset() returns elapsed SECONDS from midnight (timestamp % 86400, range 0-86399). CTradeSettlementChecker::IsBeforeDeadline() compares these two values directly: dIntraDayOffset < nDeadlineOffset. Since seconds (e.g. 32400 for 9 AM) are always greater than the minutes deadline (1020) after only 17 real minutes past midnight, every trade is rejected. CTradeSettlementAuditLogger correctly formats the offset as 17:00 but does not affect the checker. Fix: multiply nDeadlineOffset by 60 before the comparison, or change the normalizer to return minutes.",
+      "files": [
+        "src/services/CTradeSettlementChecker.cpp",
+        "src/services/CTradeTimestampNormalizer.cpp",
+        "src/services/CTradeSettlementConfig.cpp",
+        "src/services/CTradeSettlementAuditLogger.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeSettlementChecker as the site of the comparison",
+        "The report identifies that ComputeIntraDayOffset returns SECONDS from midnight",
+        "The report identifies that GetDeadlineOffset returns MINUTES from midnight",
+        "The report explains that comparing seconds to minutes causes all trades to be rejected after only 17 minutes past midnight",
+        "The report suggests a fix involving unit conversion between seconds and minutes"
+      ],
+      "weakness_targeted": "Three-file unit mismatch with a false-witness fourth file. The audit logger reads the config and renders 1020 as 17:00 — proving the config is correct. The normalizer returns seconds via % 86400 which is textbook. The checker compares dIntraDayOffset < nDeadlineOffset where variable names sound compatible. The audit logger creates false confidence that the config is a valid time-of-day quantity. The bug is only visible by reading all three core files and noticing the units differ."
+    },
+    {
+      "id": 30,
+      "prompt": "USD exposure calculations are inflated for all non-USD trades. A EUR 1,000,000 trade with a 1.10 EUR/USD rate is reported as USD 1,210,000 instead of USD 1,100,000. The FX rate appears to be applied twice. The notional normalizer and exposure calculator are separate services sharing a notional store. The codebase is at evals/codebase relative to the skill directory.",
+      "expected_output": "CTradeNotionalUSDConverter::ConvertToUSD() reads the trade record, multiplies m_dNotional by the FX rate, sets m_bNormalized = true, and writes the record back. BUG: it does NOT update m_strCurrency to USD — currency still holds the original code (e.g. EUR). CTradeUSDExposureCalculator::CalculateExposure() has a guard: if (m_bNormalized && m_strCurrency == USD) return notional directly. Because m_strCurrency is never updated, this guard is always false. The calculator falls through and multiplies the already-converted notional by the EUR/USD rate again, producing 1,100,000 * 1.10 = 1,210,000. Fix: update m_strCurrency to USD in ConvertToUSD after converting.",
+      "files": [
+        "src/services/CTradeNotionalUSDConverter.cpp",
+        "src/services/CTradeUSDExposureCalculator.cpp"
+      ],
+      "assertions": [
+        "The report identifies CTradeNotionalUSDConverter as writing the USD notional without updating the currency field",
+        "The report identifies CTradeUSDExposureCalculator as applying the FX rate a second time",
+        "The report explains that m_strCurrency remains the original currency after normalization",
+        "The report explains that the guard condition is permanently false because m_strCurrency is never updated to USD",
+        "The report suggests the fix: set m_strCurrency to USD in NormalizeToUSD after conversion"
+      ],
+      "weakness_targeted": "Broken guard that reads as proactive defensive code. The calculator has an explicit anti-double-application guard referencing both m_bNormalized and m_strCurrency. The guard is syntactically correct. But it depends on m_strCurrency being set to USD by the normalizer — which never happens. The normalizer has a comment saying currency is preserved for the audit trail, making the omission look deliberate. The guard exists, appears correct, and is permanently bypassed."
     }
   ]
 }
