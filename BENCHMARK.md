@@ -1,6 +1,6 @@
 # cpp-bug-tracer Benchmark
 
-Comparing three configurations on **15 C++ bug evals** (11 original + 4 new complex evals):
+Comparing three configurations on **27 C++ bug evals** (11 original + 16 complex evals):
 
 | Config | Architecture | Model |
 |--------|-------------|-------|
@@ -42,6 +42,13 @@ Comparing three configurations on **15 C++ bug evals** (11 original + 4 new comp
 | 21 | Approval level: 1-based config vs 0-based gate | ⚠️ PARTIAL¹¹ | ✅ PASS | — |
 | 22 | Position store: reversed key order (writer vs reader) | ✅ PASS⁹ | ✅ PASS | — |
 | 23 | Fee units: basis points (schedule) vs percent (validator) | ✅ PASS | ✅ PASS | — |
+| | **Score (16–23)** | **7/8** | **8/8** | — |
+| | | | | |
+| 24 | Priority queue inversion: classifier vs scheduler convention | ✅ PASS | ✅ PASS | — |
+| 25 | Risk limit: normalizer millions vs absolute USD | ✅ PASS | ✅ PASS | — |
+| 26 | Message encode/decode: cptyCode ↔ notional field swap | ✅ PASS | ✅ PASS | — |
+| 27 | Implicit contract: fill recorder writes nothing on final fill; completion checker expects key=0.0 | ✅ PASS | ✅ PASS | — |
+| | **Score (24–27)** | **4/4** | **4/4** | — |
 
 ### Notes
 
