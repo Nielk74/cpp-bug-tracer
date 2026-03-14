@@ -1,6 +1,6 @@
 # cpp-bug-tracer Benchmark
 
-Comparing three configurations on **27 C++ bug evals** (11 original + 16 complex evals):
+Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex evals):
 
 | Config | Architecture | Model |
 |--------|-------------|-------|
@@ -49,6 +49,11 @@ Comparing three configurations on **27 C++ bug evals** (11 original + 16 complex
 | 26 | Message encode/decode: cptyCode ↔ notional field swap | ✅ PASS | ✅ PASS | — |
 | 27 | Implicit contract: fill recorder writes nothing on final fill; completion checker expects key=0.0 | ✅ PASS | ✅ PASS | — |
 | | **Score (24–27)** | **4/4** | **4/4** | — |
+| | | | | |
+| 28 | Priority unsigned cast: negative score wraps to UINT_MAX | ✅ PASS | ✅ PASS | — |
+| 29 | Settlement seconds vs minutes (false-witness audit logger) | ✅ PASS | ✅ PASS | — |
+| 30 | Double FX: converter omits currency update, calculator guard permanently false | ✅ PASS¹² | ✅ PASS | — |
+| | **Score (28–30)** | **3/3** | **3/3** | — |
 
 ### Notes
 
@@ -103,6 +108,8 @@ Comparing three configurations on **27 C++ bug evals** (11 original + 16 complex
 The abstractor had `task: false` — it could NEVER spawn investigators. It only reasoned from the orchestrator prompt and hallucinated file names. The "parallel investigator threads" were fictional. Evals 1-11 passed because the model could reason correctly about common C++ patterns without reading files. Evals 16-22 failed because new files were unknown to the model.
 
 Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns both investigators in parallel and waits for real file:line evidence before synthesizing.
+
+¹² **Eval 30 multi-agent reliability**: First run stuck at abstractor (no output, never completed). Re-run passed fully — correctly identified that `CTradeNotionalUSDConverter` sets `m_bNormalized=true` but never updates `m_strCurrency` to "USD", causing the calculator's `(m_bNormalized && currency=="USD")` guard to be permanently false and FX to be applied twice. This is the second occurrence of multi-agent randomly getting stuck mid-run (see also original eval 24 failure). Appears to be an OpenRouter timeout issue, not a reasoning failure.
 
 | Weakness | Multi-agent (before fix) | Multi-agent (after fix) | Single-agent |
 |----------|--------------------------|------------------------|--------------|
