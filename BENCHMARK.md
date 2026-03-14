@@ -54,6 +54,12 @@ Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex
 | 29 | Settlement seconds vs minutes (false-witness audit logger) | ✅ PASS | ✅ PASS | — |
 | 30 | Double FX: converter omits currency update, calculator guard permanently false | ✅ PASS¹² | ✅ PASS | — |
 | | **Score (28–30)** | **3/3** | **3/3** | — |
+| | | | | |
+| **Tier 5 — vague prompts + 55 red-herring files (evals 28–30 v2)** | | | |
+| 28v | Priority unsigned cast — symptom-only prompt, no component names | ❌ FAIL¹³ | ✅ PASS | — |
+| 29v | Settlement seconds vs minutes — symptom-only prompt | ⚠️ PARTIAL¹³ | ✅ PASS | — |
+| 30v | Double FX — symptom-only prompt | ❌ FAIL¹³ | ✅ PASS | — |
+| | **Score (28–30 vague)** | **0.5/3** | **3/3** | — |
 
 ### Notes
 
@@ -89,6 +95,9 @@ Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex
 - **Prerequisite**: abstractor must have `task: true` to actually spawn investigators. Previously `task: false` meant the abstractor only reasoned from the prompt and hallucinated file names — no files were ever read.
 - **Pattern E** in investigator: use glob `**/<ClassName>.cpp` to find implementation files directly instead of grepping (which hits .h headers first).
 
+### When vague prompts + red herrings flip the result (tier 5)
+Adding 14 red-herring files (55 total) and removing component names from prompts reveals a new failure mode: multi-agent's orchestrator classification step becomes a bottleneck under ambiguity. The orchestrator must classify the bug type before spawning the abstractor; with a vague symptom it spends extra steps reasoning, hits the session timeout, and produces nothing. Single-agent's flat search-and-follow strategy is unaffected — it greps broadly, finds the right files through keyword density, and completes the report. **Counterintuitive result: for ambiguous real-world bugs without a named starting point, single-agent qwen3 outperforms the multi-agent pipeline.** The multi-agent workflow needs a more robust orchestrator that can spawn investigators under uncertainty rather than requiring a correct classification first.
+
 ### When single-agent wins
 - **Step efficiency**: multi-agent's orchestrator→abstractor→investigator chain costs 3–5× more steps; for trivial bugs this overhead dominates.
 - **Unclear classification**: if the orchestrator misclassifies the bug type, thread prompts point investigators to wrong entry points. Single-agent just follows symbols from the prompt directly.
@@ -108,6 +117,8 @@ Comparing three configurations on **30 C++ bug evals** (11 original + 19 complex
 The abstractor had `task: false` — it could NEVER spawn investigators. It only reasoned from the orchestrator prompt and hallucinated file names. The "parallel investigator threads" were fictional. Evals 1-11 passed because the model could reason correctly about common C++ patterns without reading files. Evals 16-22 failed because new files were unknown to the model.
 
 Fix applied: `task: true` in abstractor.md (steps 3→8). Abstractor now spawns both investigators in parallel and waits for real file:line evidence before synthesizing.
+
+¹³ **Evals 28-30 vague prompts — multi-agent orchestrator bottleneck**: With symptom-only prompts (no component names) and 55 service files, multi-agent's orchestrator classification step timed out before reaching the abstractor on 4 out of 5 attempts for evals 28 and 30. The orchestrator requires classifying the bug type before spawning the abstractor — vague prompts cause extra reasoning steps, pushing the session into timeout. Single-agent bypasses this bottleneck by doing broad keyword search across all files and following call chains directly. **Key insight**: multi-agent is *more brittle than single-agent with vague, ambiguous symptoms* — the orchestrator's rigid bug-type classification is a single point of failure. Single-agent's flat grepping strategy is more robust to ambiguity, though it would fail in a truly large codebase (thousands of files) where grep returns too many false positives to follow.
 
 ¹² **Eval 30 multi-agent reliability**: First run stuck at abstractor (no output, never completed). Re-run passed fully — correctly identified that `CTradeNotionalUSDConverter` sets `m_bNormalized=true` but never updates `m_strCurrency` to "USD", causing the calculator's `(m_bNormalized && currency=="USD")` guard to be permanently false and FX to be applied twice. This is the second occurrence of multi-agent randomly getting stuck mid-run (see also original eval 24 failure). Appears to be an OpenRouter timeout issue, not a reasoning failure.
 
